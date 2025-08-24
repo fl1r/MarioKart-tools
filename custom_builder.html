@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>カスタムビルダー</title>
+  <style>
+body { font-family: sans-serif; margin: 0; background: #f4f4f4; }
+
+    main { flex: 1; padding: 20px; background: #f4f4f4; overflow-y: auto; }
+    .controls { margin-bottom: 20px; }
+    select, button { margin: 5px; padding: 5px; }
+    .bar-container { margin: 5px 0; }
+    .bar-label { width: 150px; display: inline-block; }
+    .bar { display: inline-block; height: 16px; vertical-align: middle; }
+    .char-bar { background: #4da6ff; }
+    .machine-bar { background: #ff9933; }
+    .bar-wrapper { display: inline-block; width: 200px; background: #ddd; vertical-align: middle; }
+    .value { margin-left: 5px; font-size: 14px; }
+.bar-wrapper {
+  display: inline-flex;
+  background: #ddd;
+  width: 200px;
+  height: 16px;
+  vertical-align: middle;
+}
+.bar {
+  height: 100%;
+}
+.char-bar { background: #4da6ff; }
+.machine-bar { background: #ff9933; }
+
+
+/* ▼比較UIレイアウト */
+#compare-panel { margin-top: 20px; }
+.compare-header {
+  display: grid;
+  grid-template-columns: 140px 1fr 80px 1fr 140px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.compare-header .labels { height: 1px; } /* 占位 */
+.side-title { text-align: center; font-weight: 600; }
+.side-title.center { color: #888; }
+
+#compare-rows {
+  display: grid;
+  grid-template-columns: 140px auto 60px auto 140px;
+  gap: 20px;              /* 差分と数値の間隔を増やす */
+  align-items: center;    /* 縦位置を中央寄せ */
+  justify-content: center;/* 中央に寄せる */
+}
+
+
+/* 不要: これが残ってると重なる
+.fill.char-bar, .fill.machine-bar { position:absolute; left:0; top:0; }
+*/
+
+/* こちらを有効化 */
+.track {
+  display: flex;  /* 横並び */
+  flex-direction: row;
+  background: #2a2a2a;
+  height: 12px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.track .char-bar {
+  background: #4da6ff; /* 青 */
+  height: 100%;
+}
+.track .machine-bar {
+  background: #ff9933; /* オレンジ */
+  height: 100%;
+}
+
+
+
+/* ラベル列 */
+.labels { display: flex; flex-direction: column; gap: 8px; }
+.label-row {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  color: #000; /* 黒に変更 */
+  font-size: 0.9em;
+}
+/* 左右のグラフ列 */
+.stats { display: flex; flex-direction: column; gap: 8px; }
+.bar-row { display: flex; align-items: center; height: 24px; }
+
+/* トラック+フィル（%幅で伸縮） */
+.track {
+  display: flex;       /* 横並びにする */
+  flex-direction: row; /* 左→右 */
+  background: #2a2a2a;
+  height: 12px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.track .char-bar {
+  background: #4da6ff;
+  height: 100%;
+}
+
+.track .machine-bar {
+  background: #ff9933;
+  height: 100%;
+}
+
+
+/* 数値の位置：左はトラックの右、右はトラックの左 */
+.value-left  { width: 48px; text-align: left;  margin-left: 8px; font-variant-numeric: tabular-nums; }
+.value-right { width: 48px; text-align: right; margin-right: 8px; font-variant-numeric: tabular-nums; }
+
+/* 中央の差分列 */
+.diff { display: flex; flex-direction: column; gap: 8px; }
+.diff-cell {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums; /* 等幅数字 */
+}
+.diff-sign {
+  width: 1ch;           /* 符号分の固定幅 */
+  display: inline-block;
+  text-align: right;
+}
+.diff-plus { color: green; }
+.diff-minus { color: red; }
+
+
+/* 比較用セレクト行（任意） */
+.compare-selects { margin-top: 10px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+.compare-selects label { margin-right: 6px; color: #aaa; }
+#swapCompare { padding: 6px 10px; }
+
+
+
+#stats { margin-top:20px; }
+
+
+
+    #favorites, #search { margin-top: 20px; padding: 10px; background: #fff; border: 1px solid #ccc; }
+    .condition { margin: 5px 0; }
+    .result-item { margin: 5px 0; cursor: pointer; }
+    .remove-btn { background: red; color: white; border: none; cursor: pointer; margin-left: 5px; padding: 2px 5px; }
+#conditions {
+  display: flex;
+  flex-wrap: wrap;      /* 幅が足りなければ次の行に折り返す */
+  gap: 0.5em;           /* 条件ブロックの間隔 */
+}
+#conditions input[type="number"] {
+  width: 60px;
+}
+
+#favoriteSelect {
+  width: 600px;            /* 横幅を固定 */
+  white-space: nowrap;     /* 折り返し禁止 */
+  overflow: hidden;        /* はみ出た部分を隠す */
+  text-overflow: ellipsis; /* 「…」で省略 */
+}
+
+
+#favoriteSelect1,
+#favoriteSelect2 {
+  width: 200px;           /* 好きな横幅に */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+
+#results {
+  max-height: 240px;   /* 8件分くらい */
+  overflow-y: auto;    /* 縦スクロール */
+  border: 1px solid #ccc; /* （任意で枠を付けると分かりやすい） */
+  padding: 5px;
+
+
+}
+
+  </style>
+</head>
+
+
+  <main>
+    <h1>カスタムビルダー
+  <button id="modeSingle">単体</button>
+  <button id="modeCompare">比較</button>
+</h1>
+    <div class="controls" id="single-controls">
+      <label>キャラ:
+        <select id="characterSelect"></select>
+      </label>
+      <label>マシン:
+        <select id="machineSelect"></select>
+      </label>
+      <button id="addFavorite">★お気に入り登録</button>
+      <label>お気に入りを選択:
+        <select id="favoriteSelect"></select>
+      </label>
+      <button id="deleteFavorite">削除</button>
+<button id="randomSelect">ランダム</button>
+    </div>
+    <div id="stats"></div>
+
+<!-- ▼比較UI -->
+
+
+
+<div id="compare-panel">
+  <div class="compare-header">
+    <div class="labels"></div>
+  <div class="side-title">
+  キャラ1 <select id="characterSelect1"></select>
+  マシン1 <select id="machineSelect1"></select>
+  <button id="addFavoriteCompare">★お気に入り登録</button>
+<select id="favoriteSelect1"></select>
+<button id="removeFavorite1">削除</button>
+<button id="random1">ランダム</button>
+</div>
+
+    <div class="side-title center">
+      <button id="swapCompare">⇄ 入替</button>
+    </div>
+    <div class="side-title">
+キャラ2 <select id="characterSelect2"></select>
+マシン2 <select id="machineSelect2"></select>
+<button id="addFavoriteCompare2">★お気に入り登録</button>
+<select id="favoriteSelect2"></select>
+<button id="removeFavorite2">削除</button>
+
+
+    </div>
+    <div class="labels"></div>
+  </div>
+
+  <div id="compare-rows">
+    <div id="labels-left"  class="labels"></div>
+    <div id="stats-left"   class="stats"></div>
+    <div id="diff-col"     class="diff"></div>
+    <div id="stats-right"  class="stats"></div>
+    <div id="labels-right" class="labels"></div>
+  </div>
+</div>
+
+
+
+
+
+
+
+ 
+
+
+ <div id="search">
+  <div style="display:flex; align-items:baseline; gap:1em;">
+    <h2>検索機能</h2>
+    <!-- ▼特殊補正説明文 -->
+    <div id="special-rules-note" style="font-size:1.0em; color:#555; line-height:1.4;">
+      「※」付きのマシンとベビィピーチ・ベビィデイジー・バサバサ・パタテンテン・クッパの場合、スピード -0.2、曲がりやすさ +0.2 の補正あり
+    </div>
+  </div>
+
+  <div id="conditions"></div>
+  <button id="addCondition">＋条件追加</button>
+  <button id="runSearch">検索</button>
+  <div id="results"></div>
+</div>
+
+  </main>
+
+  <!-- キャラデータ・マシンデータは外部ファイルに分離 -->
+  <script src="characters.js"></script>
+  <script src="machines.js"></script>
+
+  <script>
+    const MAX_SCALE = 4.0;
+    const BAR_WIDTH = 200;
+
+// ▼特殊ルールを定義
+const specialRules = [
+  {
+    condition: {
+      machine_mark: "※",
+      affected_characters: [
+        "ベビィピーチ", "ベビィデイジー", "バサバサ", "パタテンテン", "クッパ"
+      ]
+    },
+    modifiers: {
+      "スピード": { "舗装路": -0.2, "悪路": -0.2, "水上": -0.2 },
+      "曲がりやすさ": { "舗装路": 0.2, "悪路": 0.2, "水上": 0.2 }
+    },
+    application: { type: "additive" }
+  }
+];
+
+    const characters = {};
+    const machines = {};
+    const characterGroups = [];
+    const machineGroups = [];
+
+    function convertStats(raw){
+      return {
+        speedRoad: raw["スピード"]["舗装路"],
+        speedOff: raw["スピード"]["悪路"],
+        speedWater: raw["スピード"]["水上"],
+        accel: raw["加速"],
+        weight: raw["重さ"],
+        turnRoad: raw["曲がりやすさ"]["舗装路"],
+        turnOff: raw["曲がりやすさ"]["悪路"],
+        turnWater: raw["曲がりやすさ"]["水上"]
+      };
+    }
+
+// ▼特殊ルールを適用する関数
+function applySpecialRules(charName, machName, totalStats) {
+  for (let rule of specialRules) {
+    if (rule.condition.machine_mark && !machName.includes(rule.condition.machine_mark)) continue;
+    if (!rule.condition.affected_characters.some(c => charName.includes(c))) continue;
+
+    for (let stat in rule.modifiers) {
+      if (stat === "スピード") {
+        totalStats.speedRoad += rule.modifiers[stat]["舗装路"];
+        totalStats.speedOff += rule.modifiers[stat]["悪路"];
+        totalStats.speedWater += rule.modifiers[stat]["水上"];
+      }
+      if (stat === "曲がりやすさ") {
+        totalStats.turnRoad += rule.modifiers[stat]["舗装路"];
+        totalStats.turnOff += rule.modifiers[stat]["悪路"];
+        totalStats.turnWater += rule.modifiers[stat]["水上"];
+      }
+    }
+  }
+  return totalStats;
+}
+
+// ▼キャラ＋マシンの合計を作って、特殊ルールを適用する共通関数
+function computeTotals(charName, machName) {
+  const charData = characters[charName];
+  const machData = machines[machName];
+  const totals = {};
+  const charStats = {};
+  const machStats = {};
+
+  statsList.forEach(([_, key]) => {
+    charStats[key] = charData[key];
+    machStats[key] = machData[key];
+    totals[key] = charData[key] + machData[key];
+  });
+
+  return {
+    totals: applySpecialRules(charName, machName, totals),
+    charStats,
+    machStats
+  };
+}
+
+
+
+
+
+    for (let group in rawCharacters["キャラ"]) {
+      const names = group.split("・");
+      characterGroups.push(names);
+      for (let n of names) characters[n] = convertStats(rawCharacters["キャラ"][group]);
+    }
+    for (let group in rawMachines["マシン"]) {
+      const names = group.split("・");
+      machineGroups.push(names);
+      for (let n of names) machines[n] = convertStats(rawMachines["マシン"][group]);
+    }
+
+    const statsList = [["スピード舗装路","speedRoad"],["スピード悪路","speedOff"],["スピード水上","speedWater"],["加速","accel"],["重さ","weight"],["曲がりやすさ舗装路","turnRoad"],["曲がりやすさ悪路","turnOff"],["曲がりやすさ水上","turnWater"]];
+
+    const characterSelect=document.getElementById("characterSelect"),machineSelect=document.getElementById("machineSelect"),statsDiv=document.getElementById("stats"),addFavBtn=document.getElementById("addFavorite"),favoriteSelect=document.getElementById("favoriteSelect"),delFavBtn=document.getElementById("deleteFavorite");
+
+
+// ランダム選択ボタン
+document.getElementById("randomSelect").addEventListener("click", () => {
+  const charKeys = Object.keys(characters);
+  const machKeys = Object.keys(machines);
+
+  const randomChar = charKeys[Math.floor(Math.random() * charKeys.length)];
+  const randomMach = machKeys[Math.floor(Math.random() * machKeys.length)];
+
+  characterSelect.value = randomChar;
+  machineSelect.value = randomMach;
+
+  updateStats();
+});
+
+
+    function initOptions(){for(let c in characters){let opt=document.createElement("option");opt.value=c;opt.textContent=c;characterSelect.appendChild(opt);}for(let m in machines){let opt=document.createElement("option");opt.value=m;opt.textContent=m;machineSelect.appendChild(opt);}}
+
+function updateStats() {
+  const charName = characterSelect.value;
+  const machName = machineSelect.value;
+
+  const charData = characters[charName];
+  const machData = machines[machName];
+
+  // 合計＋特殊ルール適用後の値
+  const { totals } = computeTotals(charName, machName);
+
+  statsDiv.innerHTML = "";
+  statsList.forEach(([label, key]) => {
+    const charWidth = Math.max(0, (charData[key] / MAX_SCALE) * BAR_WIDTH);
+    const machWidth = Math.max(0, (machData[key] / MAX_SCALE) * BAR_WIDTH);
+    const total = totals[key];   // ← ここを修正
+
+    const charBar = `<div class="bar char-bar" style="width:${charWidth}px"></div>`;
+    const machineBar = `<div class="bar machine-bar" style="width:${machWidth}px"></div>`;
+    statsDiv.innerHTML += `
+      <div class="bar-container">
+        <span class="bar-label">${label}</span>
+        <div class="bar-wrapper">${charBar}${machineBar}</div>
+        <span class="value">${total.toFixed(1)}</span>
+      </div>`;
+  });
+}
+
+
+    function getFavorites(){return JSON.parse(localStorage.getItem("favorites")||"[]");}
+    function saveFavorites(favs){localStorage.setItem("favorites",JSON.stringify(favs));}
+
+function favKeyFromObj(f){ return `${f.char}||${f.machine}`; }
+function makeFavText(f){
+  return getGroupName(f.char, characterGroups) + " + " + getGroupName(f.machine, machineGroups);
+}
+
+
+function renderFavorites() {
+  const favs = getFavorites();
+
+  // --- 重複を削除（グループ名ベース） ---
+  const unique = [];
+  const seen = new Set();
+  for (let f of favs) {
+    const displayText = makeFavText(f); // ← グループ名で判定
+    if (!seen.has(displayText)) {
+      seen.add(displayText);
+      unique.push(f);
+    }
+  }
+  saveFavorites(unique);
+
+  // 現在の選択値を保存
+  const selMainVal = favoriteSelect.value;
+  const sel1Val = favoriteSelect1.value;
+  const sel2Val = favoriteSelect2.value;
+
+  // セレクトを初期化
+  [favoriteSelect, favoriteSelect1, favoriteSelect2].forEach(sel => {
+    sel.innerHTML = "<option value=''>選択してください</option>";
+    unique.forEach(f => {
+      const opt = document.createElement("option");
+      opt.value = favKeyFromObj(f);     // 内部値はそのまま
+      opt.textContent = makeFavText(f); // 表示はグループ名
+      sel.appendChild(opt);
+    });
+  });
+
+  // 選択状態を復元（キーは char||machine のまま使う）
+  const keys = new Set(unique.map(favKeyFromObj));
+  favoriteSelect.value  = keys.has(selMainVal) ? selMainVal : "";
+  favoriteSelect1.value = keys.has(sel1Val)   ? sel1Val   : "";
+  favoriteSelect2.value = keys.has(sel2Val)   ? sel2Val   : "";
+}
+
+
+
+    function addFavorite(){
+  const favs = getFavorites();
+  let newFav;
+
+  if (document.getElementById("stats").style.display === "block") {
+    // 単体モード
+    newFav = { char: characterSelect.value, machine: machineSelect.value };
+  } else {
+    // 比較モード
+    newFav = { 
+      char: document.getElementById("characterSelect1").value,
+      machine: document.getElementById("machineSelect1").value
+    };
+  }
+
+  if (!favs.some(f => f.char === newFav.char && f.machine === newFav.machine)) {
+    favs.push(newFav);
+    saveFavorites(favs);
+    renderFavorites();
+  }
+}
+
+favoriteSelect.addEventListener("change", () => {
+  const key = favoriteSelect.value;
+  if (!key) return;
+  const [c,m] = key.split("||");
+
+  if (document.getElementById("stats").style.display === "block") {
+    characterSelect.value = c;
+    machineSelect.value   = m;
+    updateStats();
+  } else {
+    document.getElementById("characterSelect1").value = c;
+    document.getElementById("machineSelect1").value   = m;
+    updateComparison();
+  }
+});
+
+
+  delFavBtn.addEventListener("click", () => {
+  const key = favoriteSelect.value;
+  if (!key) return;
+  const [char, machine] = key.split("||");
+  const favs = getFavorites().filter(f => !(f.char===char && f.machine===machine));
+  saveFavorites(favs);
+  renderFavorites();
+  favoriteSelect.value = ""; // 自分の欄だけクリア
+});
+
+
+    const conditionsDiv=document.getElementById("conditions"),resultsDiv=document.getElementById("results"),addCondBtn=document.getElementById("addCondition"),runSearchBtn=document.getElementById("runSearch");let conditions=[];
+
+
+    function renderConditions(){conditionsDiv.innerHTML="";conditions.forEach((cond,idx)=>{const div=document.createElement("div");div.className="condition";div.innerHTML=`<select onchange="conditions[${idx}].key=this.value; conditions[${idx}].label=this.options[this.selectedIndex].text; renderConditions();">${statsList.map(([label,key])=>`<option value="${key}" ${cond.key===key?"selected":""}>${label}</option>`).join("")}</select><select onchange="conditions[${idx}].op=this.value"><option value=">=" ${cond.op===">="?"selected":""}>以上</option><option value="<=" ${cond.op==="<="?"selected":""}>以下</option><option value="==" ${cond.op==="=="?"selected":""}>ちょうど</option></select><input type="number" step="0.1" value="${cond.value}" onchange="conditions[${idx}].value=parseFloat(this.value)"><button class="remove-btn" onclick="removeCondition(${idx})">×</button>`;conditionsDiv.appendChild(div);});}
+    function removeCondition(idx){conditions.splice(idx,1);renderConditions();}
+    addCondBtn.addEventListener("click",()=>{conditions.push({label:statsList[0][0],key:statsList[0][1],op:">=",value:2.0});renderConditions();});
+
+    runSearchBtn.addEventListener("click",()=>{resultsDiv.innerHTML="";const shown=new Set();for(let c in characters){for(let m in machines){let valid=true;for(let cond of conditions){
+const { totals } = computeTotals(c, m);  // totalsだけ取り出す
+let val = totals[cond.key];
+
+
+ 
+const EPS = 0.0001; // 誤差許容幅
+
+if (cond.op === ">=" && val < cond.value - EPS) valid = false;
+if (cond.op === "<=" && val > cond.value + EPS) valid = false;
+if (cond.op === "==" && Math.abs(val - cond.value) > EPS) valid = false;
+
+
+}if(valid){const comboKey=getGroupName(c,characterGroups)+" + "+getGroupName(m,machineGroups);if(!shown.has(comboKey)){shown.add(comboKey);const div=document.createElement("div");div.className="result-item";div.textContent=comboKey;div.onclick = () => {
+  if (document.getElementById("stats").style.display === "block") {
+    // 単体モード
+    characterSelect.value = c;
+    machineSelect.value = m;
+    updateStats();
+  } else {
+    // 比較モード → キャラ1マシン1に反映
+    document.getElementById("characterSelect1").value = c;
+    document.getElementById("machineSelect1").value = m;
+    updateComparison();
+  }
+};
+;resultsDiv.appendChild(div);}}}}if(!resultsDiv.innerHTML)resultsDiv.textContent="なし";});
+
+    function getGroupName(name,groups){for(let g of groups){if(g.includes(name)){if(g.length===1)return g[0];return g[0]+"（"+g.slice(1).join("・")+"）";}}return name;}
+
+    initOptions();updateStats();renderFavorites();addFavBtn.addEventListener("click",addFavorite);characterSelect.addEventListener("change",updateStats);machineSelect.addEventListener("change",updateStats);
+
+
+// ▼最大値（グラフ伸び率の基準）— あなたの環境に合わせて調整
+const MAX_STAT_FOR_BAR = 6; // 例: 各項目の最大を6想定（変えるならここ）
+
+// ▼比較UI初期化：既存の一覧からセレクトを埋める
+function initCompareSelects() {
+  const fill = (sel, list) => {
+    sel.innerHTML = "";
+    Object.keys(list).forEach(k => {
+      const opt = document.createElement("option");
+      opt.value = k; opt.textContent = k;
+      sel.appendChild(opt);
+    });
+  };
+  const c1 = document.getElementById("characterSelect1");
+  const m1 = document.getElementById("machineSelect1");
+  const c2 = document.getElementById("characterSelect2");
+  const m2 = document.getElementById("machineSelect2");
+  if (!c1 || !m1 || !c2 || !m2) return;
+
+  fill(c1, characters);
+  fill(m1, machines);
+  fill(c2, characters);
+  fill(m2, machines);
+
+  // 初期値：今の単体セレクトがあるなら流用
+  const mainChar = document.getElementById("characterSelect")?.value;
+  const mainMach = document.getElementById("machineSelect")?.value;
+  if (mainChar) c1.value = mainChar;
+  if (mainMach) m1.value = mainMach;
+
+  // 適当に別の値を右に
+  c2.selectedIndex = Math.min(1, c2.options.length-1);
+  m2.selectedIndex = Math.min(1, m2.options.length-1);
+
+  // イベント
+  [c1,m1,c2,m2].forEach(el => el.addEventListener("change", updateComparison));
+  document.getElementById("swapCompare").addEventListener("click", () => {
+    const c1v=c1.value, m1v=m1.value, c2v=c2.value, m2v=m2.value;
+    c1.value=c2v; m1.value=m2v; c2.value=c1v; m2.value=m1v;
+    updateComparison();
+  });
+}
+
+// 左側の組み合わせ用バー行
+function makeBarRowLeft(charValue, machValue, total) {
+  const row = document.createElement("div");
+  row.className = "bar-row";
+
+  const charWidth = (charValue / MAX_SCALE) * BAR_WIDTH;
+  const machWidth = (machValue / MAX_SCALE) * BAR_WIDTH;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "bar-wrapper";
+  wrapper.innerHTML = `
+    <div class="bar char-bar" style="width:${charWidth}px"></div>
+    <div class="bar machine-bar" style="width:${machWidth}px"></div>
+  `;
+
+  const v = document.createElement("span");
+  v.className = "value-left";
+  v.textContent = total.toFixed(1);
+
+  row.append(wrapper, v);
+  return row;
+}
+
+
+
+// 右側の組み合わせ用バー行
+function makeBarRowRight(charValue, machValue, total) {
+  const row = document.createElement("div");
+  row.className = "bar-row";
+
+  const charWidth = (charValue / MAX_SCALE) * BAR_WIDTH;
+  const machWidth = (machValue / MAX_SCALE) * BAR_WIDTH;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "bar-wrapper";
+  wrapper.innerHTML = `
+    <div class="bar char-bar" style="width:${charWidth}px"></div>
+    <div class="bar machine-bar" style="width:${machWidth}px"></div>
+  `;
+
+  const v = document.createElement("span");
+  v.className = "value-right";
+  v.textContent = total.toFixed(1);
+
+  // ← 数値を左に置く
+  row.append(v, wrapper);
+  return row;
+}
+
+
+
+
+
+// ▼中央差分セル
+function makeDiffCell(diff) {
+  const cell = document.createElement("div");
+  cell.className = "diff-cell " + (diff>0 ? "diff-plus" : diff<0 ? "diff-minus": "");
+
+  const sign = document.createElement("span");
+  sign.className = "diff-sign";
+  sign.textContent = diff > 0 ? "+" : (diff < 0 ? "−" : "");  
+
+  const num = document.createElement("span");
+  num.textContent = Math.abs(diff).toFixed(1);
+
+  cell.append(sign, num);
+  return cell;
+}
+
+
+// ▼比較本体レンダリング
+function renderComparison(left, right) {
+  const L  = document.getElementById("stats-left");
+  const D  = document.getElementById("diff-col");
+  const R  = document.getElementById("stats-right");
+  const LL = document.getElementById("labels-left");
+  const LR = document.getElementById("labels-right");
+  [L,D,R,LL,LR].forEach(n => n.innerHTML = "");
+
+  statsList.forEach(([label, key]) => {
+    const lChar = left.charStats[key];
+    const lMach = left.machStats[key];
+    const lTot  = left.totals[key];
+
+    const rChar = right.charStats[key];
+    const rMach = right.machStats[key];
+    const rTot  = right.totals[key];
+
+    const diff = lTot - rTot;
+
+    LL.appendChild(Object.assign(document.createElement("div"), { className:"label-row", textContent: label }));
+    L.appendChild(makeBarRowLeft(lChar, lMach, lTot));
+    D.appendChild(makeDiffCell(diff));
+    R.appendChild(makeBarRowRight(rChar, rMach, rTot));
+    LR.appendChild(Object.assign(document.createElement("div"), { className:"label-row", textContent: label }));
+  });
+}
+
+
+// ▼セレクトの状態から比較を更新
+function updateComparison() {
+  const c1 = document.getElementById("characterSelect1")?.value;
+  const m1 = document.getElementById("machineSelect1")?.value;
+  const c2 = document.getElementById("characterSelect2")?.value;
+  const m2 = document.getElementById("machineSelect2")?.value;
+  if (!c1 || !m1 || !c2 || !m2) return;
+
+  const left  = computeTotals(c1, m1);
+  const right = computeTotals(c2, m2);
+  renderComparison(left, right);
+}
+
+
+// ▼起動
+document.addEventListener("DOMContentLoaded", () => {
+  initCompareSelects();
+  updateComparison();
+});
+
+document.getElementById("modeSingle").addEventListener("click", () => {
+  document.getElementById("single-controls").style.display = "block";
+  document.getElementById("stats").style.display = "block";
+  document.getElementById("compare-panel").style.display = "none";
+});
+
+document.getElementById("modeCompare").addEventListener("click", () => {
+  document.getElementById("single-controls").style.display = "none";
+  document.getElementById("stats").style.display = "none";
+  document.getElementById("compare-panel").style.display = "block";
+  updateComparison();
+});
+
+
+// ページロード時は単体のみ表示
+document.getElementById("stats").style.display = "block";
+document.getElementById("compare-panel").style.display = "none";
+
+document.getElementById("addFavoriteCompare").addEventListener("click", addFavorite);
+
+// --- 比較モード: お気に入りセレクト1 ---
+favoriteSelect1.addEventListener("change", () => {
+  const key = favoriteSelect1.value;
+  if (!key) return;
+  const [c,m] = key.split("||");
+  document.getElementById("characterSelect1").value = c;
+  document.getElementById("machineSelect1").value   = m;
+  updateComparison();
+});
+
+
+// --- 比較モード: お気に入りセレクト2 ---
+favoriteSelect2.addEventListener("change", () => {
+  const key = favoriteSelect2.value;
+  if (!key) return;
+  const [c,m] = key.split("||");
+  document.getElementById("characterSelect2").value = c;
+  document.getElementById("machineSelect2").value   = m;
+  updateComparison();
+});
+
+
+// --- 削除ボタン ---
+removeFavorite1.addEventListener("click", () => {
+  const key = favoriteSelect1.value;
+  if (!key) return;
+
+  const [char, machine] = key.split("||");
+  const favs = getFavorites().filter(f => !(f.char===char && f.machine===machine));
+  saveFavorites(favs);
+
+  renderFavorites();
+
+  // ここを修正：自分のセレクトだけクリア
+  if (!favs.some(f => favKeyFromObj(f) === key)) {
+    favoriteSelect1.value = "";
+  }
+});
+
+removeFavorite2.addEventListener("click", () => {
+  const key = favoriteSelect2.value;
+  if (!key) return;
+
+  const [char, machine] = key.split("||");
+  const favs = getFavorites().filter(f => !(f.char===char && f.machine===machine));
+  saveFavorites(favs);
+
+  renderFavorites();
+
+  // ここも同様に修正
+  if (!favs.some(f => favKeyFromObj(f) === key)) {
+    favoriteSelect2.value = "";
+  }
+});
+
+
+
+
+// --- ランダムボタン ---
+random1.addEventListener("click", () => {
+  const chars = Object.keys(characters);
+  const machs = Object.keys(machines);
+  document.getElementById("characterSelect1").value = chars[Math.floor(Math.random()*chars.length)];
+  document.getElementById("machineSelect1").value = machs[Math.floor(Math.random()*machs.length)];
+  updateComparison();
+});
+
+
+document.getElementById("addFavoriteCompare2").addEventListener("click", () => {
+  const favs = getFavorites();
+  const newFav = { 
+    char: document.getElementById("characterSelect2").value,
+    machine: document.getElementById("machineSelect2").value
+  };
+  if (!favs.some(f => f.char === newFav.char && f.machine === newFav.machine)) {
+    favs.push(newFav);
+    saveFavorites(favs);
+    renderFavorites();
+  }
+});
+
+
+
+
+  </script>
+</body>
+</html>

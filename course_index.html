@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>コースルート</title>
+  <style>
+    body { margin: 0; font-family: sans-serif; background: #f5f5f5; }
+
+    .grid {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      grid-template-columns: 1fr 1fr; /* 左:操作, 右:マップ+パレット */
+      height: 100vh;
+    }
+    header { grid-column: 1 / -1; padding: 16px 20px 0; }
+
+    .controls {
+      grid-row: 2; grid-column: 1;
+      padding: 12px 20px;
+      display: flex; flex-direction: column;
+      gap: 12px;
+      overflow-y: auto;
+    }
+    .viewer {
+      grid-row: 2; grid-column: 2;
+      display: flex; flex-direction: row; /* ← マップとパレットを横並び */
+      background: #fff; border-left: 1px solid #ddd;
+      overflow: hidden;
+    }
+    .viewer iframe {
+      flex: 1; /* マップが右半分の左側に広がる */
+      border: none;
+    }
+
+    label { margin-right: 8px; }
+    select { margin: 4px; padding: 6px 8px; }
+
+    .memo { display: flex; flex-direction: column; }
+    .memo label { margin-bottom: 4px; font-weight: bold; }
+    .memo textarea {
+      resize: vertical;
+      min-height: 96px;
+      padding: 8px; font-size: 14px;
+      border: 1px solid #ccc; border-radius: 4px; background: #fff;
+    }
+
+/* ルートメモ・雑感メモは共通の高さ (96px) */
+#routeMemo, #noteMemo {
+  min-height: 96px;
+}
+
+/* ショートカット解説だけ高くする (144px ≒ 12行) */
+#scMemo {
+  min-height: 144px;
+}
+
+
+
+    .ranking { border:1px solid #ccc; padding:8px; background:#fff; border-radius:6px; }
+    .ranking h3{ margin:0 0 8px 0; font-size:14px; }
+    .ranking-grid{
+      display:grid;
+      grid-template-columns: auto 1fr auto 1fr;
+      gap: 6px 10px;
+      max-height: 190px;
+      overflow-y:auto;
+      padding-right:4px;
+    }
+    .rank-label{ display:flex; align-items:center; font-size:13px; white-space:nowrap; }
+    .rank-select{ min-width: 140px; }
+  </style>
+</head>
+<body>
+  <div class="grid">
+    <header><h1 style="margin:0;">コースルート</h1></header>
+
+    <div class="controls">
+      <div>
+        <label>始点：
+          <select id="start"></select>
+        </label>
+<button id="swapBtn" title="始点と終点を入れ替え">↔</button>
+        <label>終点：
+          <select id="end"></select>
+        </label>
+<button id="exportBtn">データ全出力</button>
+<button id="importBtn">データ読込</button>
+<input type="file" id="importFile" accept="application/json" style="display:none;">
+
+
+      </div>
+
+      <div class="ranking">
+        <h3>終点コース順位（始点ごとに保存）</h3>
+        <div id="rankingGrid" class="ranking-grid"></div>
+      </div>
+
+      <div class="memo">
+        <label for="routeMemo">ルートメモ</label>
+        <textarea id="routeMemo"></textarea>
+      </div>
+
+<div class="memo">
+  <label for="scMemo">ショートカット解説</label>
+  <textarea id="scMemo"></textarea>
+</div>
+
+      <div class="memo">
+        <label for="noteMemo">雑感メモ</label>
+        <textarea id="noteMemo"></textarea>
+      </div>
+    </div>
+
+    <div class="viewer">
+      <iframe id="mapFrame" src="map_editor_fixa.html"></iframe>
+      <!-- パレットは map_editor_fixa.html 内にあるので別枠不要 -->
+    </div>
+  </div>
+
+  <script src="courses.js"></script>
+  <script>
+    const startEl   = document.getElementById('start');
+    const endEl     = document.getElementById('end');
+    const mapFrame  = document.getElementById('mapFrame');
+    const routeMemo = document.getElementById('routeMemo');
+    const noteMemo  = document.getElementById('noteMemo');
+    const rankingGrid = document.getElementById('rankingGrid');
+
+const scMemo  = document.getElementById('scMemo');
+
+function saveMemos() {
+  const s = startEl.value, e = endEl.value;
+  localStorage.setItem(keyMemo(s,e), JSON.stringify({
+    route: routeMemo.value,
+    sc: scMemo.value,
+    note: noteMemo.value
+  }));
+}
+
+function loadMemos() {
+  const s = startEl.value, e = endEl.value;
+  const raw = localStorage.getItem(keyMemo(s,e));
+  if (raw) {
+    const obj = JSON.parse(raw);
+    routeMemo.value = obj.route || '';
+    scMemo.value    = obj.sc    || '';
+    noteMemo.value  = obj.note  || '';
+  } else {
+    routeMemo.value = '';
+    scMemo.value    = '';
+    noteMemo.value  = '';
+  }
+}
+
+
+routeMemo.addEventListener('input', saveMemos);
+scMemo   .addEventListener('input', saveMemos);
+noteMemo .addEventListener('input', saveMemos);
+
+
+
+    const starts = [...new Set(routes.map(r => r[0]))];
+    for (const jp of starts) {
+      const opt = document.createElement('option');
+      opt.value = jp; opt.textContent = jp;
+      startEl.appendChild(opt);
+    }
+
+    const keyMemo = (s,e) => `memo_${s}_${e}`;
+    const keyRanking = (s) => `ranking_${s}`;
+    const keyLastSel = "last_selection";
+
+    function endsForStart(s) { return routes.filter(r => r[0] === s).map(r => r[1]); }
+
+    // --- メモ保存/読込 ---
+
+
+// ===== エクスポート =====
+document.getElementById("exportBtn").addEventListener("click", () => {
+  const allData = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    try {
+      allData[key] = JSON.parse(localStorage.getItem(key));
+    } catch {
+      allData[key] = localStorage.getItem(key);
+    }
+  }
+  const blob = new Blob([JSON.stringify(allData, null, 2)], {type: "application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "data.json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+// ===== インポート =====
+document.getElementById("importBtn").addEventListener("click", () => {
+  document.getElementById("importFile").click();
+});
+
+document.getElementById("importFile").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const data = JSON.parse(ev.target.result);
+
+      // localStorage に上書き保存
+      for (const [key, value] of Object.entries(data)) {
+        localStorage.setItem(key, JSON.stringify(value));
+      }
+
+      alert("データを読み込みました。ページを再読み込みすると反映されます。");
+      // 即反映したければ次の行のコメントアウトを外す
+      // location.reload();
+    } catch (err) {
+      alert("読み込みエラー: " + err.message);
+    }
+  };
+  reader.readAsText(file);
+});
+
+
+
+    // --- 順位関連 ---
+    function sanitizeRanking(rank, ends) {
+      const seen = new Set(), out = [];
+      for (const e of (rank||[])) {
+        if (ends.includes(e) && !seen.has(e)) { out.push(e); seen.add(e); }
+      }
+      for (const e of ends) if (!seen.has(e)) out.push(e);
+      return out;
+    }
+    function getRanking(s) {
+      const ends = endsForStart(s);
+      const raw = localStorage.getItem(keyRanking(s));
+      const rank = raw ? JSON.parse(raw) : null;
+      return sanitizeRanking(rank, ends);
+    }
+    function setRanking(s, rank) {
+      localStorage.setItem(keyRanking(s), JSON.stringify(rank));
+    }
+    function setRankAt(pos, value) {
+      const s = startEl.value;
+      const ends = endsForStart(s);
+      let rank = getRanking(s).filter(v => v !== value);
+      for (const e of ends) if (!rank.includes(e)) rank.push(e);
+      rank.splice(pos, 0, value);
+      rank = rank.slice(0, ends.length);
+      setRanking(s, rank);
+      renderRanking();
+    }
+    function renderRanking() {
+      rankingGrid.innerHTML = '';
+      const s = startEl.value, ends = endsForStart(s), rank = getRanking(s);
+      for (let i = 0; i < ends.length; i += 2) {
+        addRankCell(i,   rank[i]   ?? ends[i],   ends);
+        if (i+1 < ends.length) addRankCell(i+1, rank[i+1] ?? ends[i+1], ends);
+      }
+    }
+    function addRankCell(pos, selectedValue, ends) {
+      const label = document.createElement('div');
+      label.className = 'rank-label';
+      label.textContent = `${pos+1}位`;
+      const sel = document.createElement('select');
+      sel.className = 'rank-select';
+      for (const e of ends) {
+        const opt = document.createElement('option');
+        opt.value = e; opt.textContent = e;
+        if (e === selectedValue) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      sel.addEventListener('change', () => setRankAt(pos, sel.value));
+      rankingGrid.appendChild(label);
+      rankingGrid.appendChild(sel);
+    }
+
+    // --- 始点・終点選択 ---
+function refreshEnds() {
+  const s = startEl.value;
+  const currentEnd = endEl.value; // 現在の終点を保持
+
+  endEl.innerHTML = "";
+  const ends = endsForStart(s);
+  ends.forEach(e => {
+    const opt = document.createElement("option");
+    opt.value = e;
+    opt.textContent = e;
+    endEl.appendChild(opt);
+  });
+
+  // 候補に残っているなら保持、無ければ「コース単体」→それも無ければ先頭
+  if (ends.includes(currentEnd)) {
+    endEl.value = currentEnd;
+  } else if (ends.includes("コース単体")) {
+    endEl.value = "コース単体";
+  } else {
+    endEl.value = ends.length ? ends[0] : "";
+  }
+
+  // ★ここからが「はみ出していた4行」：関数の中に入れる
+  renderRanking();
+  if (!endEl.value && ends.length) endEl.value = getRanking(s)[0] || ends[0];
+  updateMap(); 
+  loadMemos();
+  saveLastSelection();
+}
+
+
+
+    function updateMap() {
+      const s = startEl.value, e = endEl.value;
+      if (!e) return;
+      mapFrame.src = `map_editor_fixa.html?start=${encodeURIComponent(s)}&end=${encodeURIComponent(e)}`;
+      loadMemos();
+      saveLastSelection();
+    }
+
+    startEl.addEventListener('change', refreshEnds);
+    endEl  .addEventListener('change', updateMap);
+
+    // --- 最後の選択を保存/復元 ---
+    function saveLastSelection() {
+      localStorage.setItem(keyLastSel, JSON.stringify({start: startEl.value, end: endEl.value}));
+    }
+    function loadLastSelection() {
+      const raw = localStorage.getItem(keyLastSel);
+      if (!raw) return false;
+      try {
+        const obj = JSON.parse(raw);
+        if (starts.includes(obj.start)) {
+          startEl.value = obj.start;
+          refreshEnds();
+          if (endsForStart(obj.start).includes(obj.end)) {
+            endEl.value = obj.end;
+            updateMap();
+          }
+          return true;
+        }
+      } catch {}
+      return false;
+    }
+
+document.getElementById('swapBtn').addEventListener('click', () => {
+  const start = startEl.value;
+  const end   = endEl.value;
+
+
+  // ★ 追加: 終点が「コース単体」なら入れ替えしない
+  if (end === "コース単体") return;
+
+  if (!end) return; // 終点未選択なら何もしない
+
+  // 入れ替え
+  startEl.value = end;
+  endEl.value   = start;
+
+  // 終点候補を作り直し
+  if (typeof refreshEnds === 'function') {
+    refreshEnds();
+
+    // refreshEnds() の後に終点を再設定（候補にあれば保持）
+    if ([...endEl.options].some(o => o.value === start)) {
+      endEl.value = start;
+    } 
+    // 特例: ピーチスタジアム ↔ レインボーロード
+    else if (start === "ピーチスタジアム" && end === "レインボーロード") {
+      if ([...endEl.options].some(o => o.value === "コース単体")) {
+        endEl.value = "コース単体";
+      } else {
+        endEl.value = "";
+      }
+    }
+    // それ以外は「コース単体」があればコース単体、無ければ空
+    else if ([...endEl.options].some(o => o.value === "コース単体")) {
+      endEl.value = "コース単体";
+    } else {
+      endEl.value = "";
+    }
+  }
+
+  if (typeof updateMap === 'function')   updateMap();
+  if (typeof saveSelection === 'function') saveSelection();
+});
+
+
+
+
+    // --- 初期化 ---
+    if (starts.length) {
+      if (!loadLastSelection()) {
+        startEl.value = starts[0];
+        refreshEnds();
+      }
+    }
+  </script>
+</body>
+</html>

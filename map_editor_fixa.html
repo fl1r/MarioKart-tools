@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>マップ（ズーム・パン対応／保存付）</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root{
+    --sc-bg:#1e66ff; --nisc-bg:#e53935; --itembox-bg:#ff9800;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;display:flex;font-family:sans-serif;background:#fafafa;color:#222;height:100vh;}
+
+  #map-wrap{flex:1;display:flex;flex-direction:row;align-items:stretch;}
+
+#map-area {
+  flex:1;
+  position:relative; /* ★追加：zoomDisplay の配置基準にする */
+  background:#fff;
+  overflow:hidden;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  border-right:1px solid #ddd;
+  cursor:grab;
+}
+
+  #map-area.dragging{cursor:grabbing;}
+
+  #map-inner{
+    position:relative;
+    transform-origin:center center;
+  }
+  #map-inner img{
+    display:block; max-width:100%; max-height:100%;
+    user-select:none; -webkit-user-drag:none; pointer-events:none;
+  }
+  svg.arrow-layer{
+    position:absolute; top:0; left:0; width:100%; height:100%;
+    pointer-events:auto;
+  }
+
+
+#zoomDisplay {
+  position:absolute;
+  top:8px;
+  right:8px;
+  background:rgba(0,0,0,0.6);
+  color:#fff;
+  font-size:12px;
+  padding:2px 6px;
+  border-radius:4px;
+  pointer-events:none;
+}
+
+
+  #sidebar{
+    width:220px; border-left:1px solid #ddd; background:#fff; overflow-y:auto;
+  }
+  #sidebar h3{margin:10px 8px 6px;font-size:13px;color:#444}
+  .icons{display:flex;flex-wrap:wrap;gap:6px;padding:0 8px 8px;}
+  .icon{
+    width:24px;height:24px;line-height:24px;text-align:center;font-weight:800;
+    font-size:16px;cursor:grab;user-select:none;color:#fff;margin:2px;
+  }
+  .sc{border-radius:50%;background:var(--sc-bg);}
+  .nisc{border-radius:50%;background:var(--nisc-bg);}
+  .itembox{border-radius:6px;background:var(--itembox-bg);}
+
+/* マップ上のアイコンを一回り小さくし、中心基準にする */
+.placed{
+  position:absolute;cursor:move;
+  width:24px;height:24px;line-height:24px;text-align:center;font-weight:800;
+  font-size:12px;color:#fff;display:flex;align-items:center;justify-content:center;
+  transform: translate(-50%, -50%);  /* ←中心基準。左/上は%で中心位置を持たせる */
+}
+
+  .placed.sc{background:var(--sc-bg);border-radius:50%;}
+  .placed.nisc{background:var(--nisc-bg);border-radius:50%;}
+  .placed.itembox{background:var(--itembox-bg);border-radius:6px;}
+
+  #legend{margin:8px;padding:8px;border-top:1px solid #eee;font-size:12px;background:rgba(255,255,255,.9)}
+  .hint{font-size:11px;color:#666;margin-top:6px}
+
+  .arrow-hit{stroke:black; stroke-opacity:0; stroke-width:32; pointer-events:stroke;}
+  .arrow-vis{stroke:black; stroke-width:3; pointer-events:none;}
+  .arrow-group{cursor:move;}
+  .start-dot{
+    position:absolute;width:10px;height:10px;border-radius:50%;
+    background:#000;transform:translate(-50%,-50%); pointer-events:none; opacity:.6;
+  }
+
+  #clearBtn, #resetZoomBtn{
+    margin:8px; padding:6px 12px; font-size:13px;
+    border:1px solid #888; border-radius:6px; background:#eee; cursor:pointer;
+  }
+</style>
+</head>
+<body>
+<div id="map-wrap">
+
+
+
+  <div id="map-area">
+    <div id="map-inner">
+      <img id="bgimg" src="" alt="map">
+      <svg class="arrow-layer" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+
+<div id="zoomDisplay">1.0x</div>
+
+  </div>
+  <aside id="sidebar">
+    <h3>SC</h3><div id="sc-icons" class="icons"></div>
+    <h3>NISC</h3><div id="nisc-icons" class="icons"></div>
+    <h3>ItemBox</h3><div id="item-icons" class="icons"></div>
+    <button id="clearBtn">全削除</button>
+    <button id="resetZoomBtn">1倍に戻す</button>
+    <div id="legend">
+      <div>・同タイプ同番号の重複不可。置くとパレットから消える／右クリックで削除&復帰</div>
+      <div>・マップを2回クリックで矢印。ドラッグで移動／右クリックで削除</div>
+      <div>・ドラッグでマップ移動（パン）／ホイールでズーム（0.5x〜3x）</div>
+    </div>
+  </aside>
+</div>
+
+<script>
+const params=new URLSearchParams(location.search);
+const START=params.get("start")||""; const END=params.get("end")||"";
+const STORAGE_KEY=`map_${START}_${END}`;
+
+const mapArea=document.getElementById('map-area');
+const mapInner=document.getElementById('map-inner');
+const img=document.getElementById('bgimg');
+const arrowLayer=mapInner.querySelector('svg.arrow-layer');
+const sidebar=document.getElementById('sidebar');
+
+let zoom=1, panX=0, panY=0; // 表示変換の状態
+let dragTarget=null, offsetX=0, offsetY=0;
+let isDraggingSomething=false;
+let arrowStartPoint=null, startDot=null;
+
+/* パレット初期化 */
+function createPalette(cid,type,cls){
+  const c=document.getElementById(cid); c.innerHTML="";
+  for(let i=1;i<=12;i++){
+    const d=document.createElement("div");
+    d.className="icon "+cls;
+    d.draggable=true; d.dataset.type=type; d.dataset.num=i; d.textContent=i;
+    c.appendChild(d);
+  }
+}
+createPalette("sc-icons","SC","sc");
+createPalette("nisc-icons","NISC","nisc");
+createPalette("item-icons","ItemBox","itembox");
+</script>
+<script src="courses.js"></script>
+<script>
+const bg=(typeof getBackground==="function"?getBackground(START,END):"")||(typeof defaultBackground!=="undefined"?defaultBackground:"");
+if(bg) img.src=bg;
+</script>
+<script>
+/* ===== パン・ズーム管理 ===== */
+function applyTransform(){
+  mapInner.style.transform=`translate(${panX}px,${panY}px) scale(${zoom})`;
+ document.getElementById("zoomDisplay").textContent = zoom.toFixed(1) + "x";
+}
+mapArea.addEventListener('wheel',e=>{
+  if(e.target.closest('#sidebar')) return;
+  e.preventDefault();
+  const scale=e.deltaY<0?1.1:0.9;
+  zoom*=scale; zoom=Math.max(0.5,Math.min(zoom,3));
+  applyTransform();
+});
+let panDragging=false, panPrev={x:0,y:0};
+  mapArea.addEventListener('mousedown',e=>{
+   if(e.button !== 1) return; // 中ボタン以外は無視
+   if(e.target.closest('#sidebar')) return; // サイドバー上は無視
+   panDragging=true; panPrev={x:e.clientX,y:e.clientY};
+   mapArea.classList.add('dragging');
+   e.preventDefault(); // 中クリックのスクロール動作を抑制
+});
+document.addEventListener('mousemove',e=>{
+  if(!panDragging) return;
+  const dx=e.clientX-panPrev.x, dy=e.clientY-panPrev.y;
+  panX+=dx; panY+=dy;
+  panPrev={x:e.clientX,y:e.clientY};
+  applyTransform();
+});
+document.addEventListener('mouseup',()=>{
+  panDragging=false; mapArea.classList.remove('dragging');
+});
+document.getElementById('resetZoomBtn').addEventListener('click',()=>{
+  zoom=1; panX=0; panY=0; applyTransform();
+});
+
+/* ===== D&D（sidebar → map-inner にドロップ） ===== */
+mapArea.addEventListener('dragover', e => e.preventDefault());
+mapArea.addEventListener('drop', e => {
+  e.preventDefault();
+  const type=e.dataTransfer.getData("type");
+  const num =e.dataTransfer.getData("num");
+  if(!type || !num) return;
+  if(mapInner.querySelector(`.placed[data-type="${type}"][data-num="${num}"]`)) return;
+  const rect=mapInner.getBoundingClientRect();
+  const xp=((e.clientX-rect.left)/rect.width )*100;
+  const yp=((e.clientY-rect.top )/rect.height)*100;
+  const icon=createPlacedIcon(type,num,xp,yp);
+  mapInner.appendChild(icon);
+  removeFromPalette(type,num);
+  saveState();
+});
+sidebar.addEventListener('dragstart',e=>{
+  if(e.target.classList.contains("icon")){
+    e.dataTransfer.setData("type",e.target.dataset.type);
+    e.dataTransfer.setData("num", e.target.dataset.num);
+  }
+});
+
+
+
+/* ===== アイコン生成・移動・削除 ===== */
+function createPlacedIcon(type,num,xPercent,yPercent){
+  const icon=document.createElement("div");
+  icon.classList.add("placed", type.toLowerCase());
+  icon.dataset.type=type;
+  icon.dataset.num =num;
+  icon.textContent =num;
+  setIconPos(icon, xPercent, yPercent);
+  icon.addEventListener('mousedown',startDragIcon);
+  icon.addEventListener('contextmenu',e=>{
+    e.preventDefault();
+    icon.remove();
+    restoreToPalette(type,num);
+    saveState();
+  });
+  return icon;
+}
+function setIconPos(el, xp, yp){
+  el.style.left = xp + "%";
+  el.style.top  = yp + "%";
+  el.dataset.xp = xp;
+  el.dataset.yp = yp;
+}
+function startDragIcon(e){
+if (e.button !== 0) return; // ★左クリック以外は無視
+  dragTarget=e.target;
+  isDraggingSomething=true;
+  const rect=dragTarget.getBoundingClientRect();
+  offsetX=e.clientX-rect.left;
+  offsetY=e.clientY-rect.top;
+  document.addEventListener('mousemove',onDragIcon);
+  document.addEventListener('mouseup',endDragIcon);
+}
+function onDragIcon(e){
+  if(!dragTarget)return;
+  e.preventDefault();
+  const rect=mapInner.getBoundingClientRect();
+  const x=((e.clientX-rect.left-offsetX)/rect.width )*100;
+  const y=((e.clientY-rect.top -offsetY)/rect.height)*100;
+  setIconPos(dragTarget, x, y);
+}
+function endDragIcon(){
+  document.removeEventListener('mousemove',onDragIcon);
+  document.removeEventListener('mouseup',endDragIcon);
+  setTimeout(()=>{ isDraggingSomething=false; saveState(); },50);
+}
+
+function getMapPercentPoint(e) {
+  const rect = mapInner.getBoundingClientRect();
+  return {
+    xp: ((e.clientX - rect.left) / rect.width) * 100,
+    yp: ((e.clientY - rect.top ) / rect.height) * 100
+  };
+}
+
+
+
+
+/* ===== 矢印管理 ===== */
+mapArea.addEventListener('click', e=>{
+  if(isDraggingSomething) return;
+  if(e.target.closest('#sidebar')) return;
+  if(e.target.closest('.placed')) return;
+
+  // ★クリック位置をズーム・パン補正して取得
+  const {xp, yp} = getMapPercentPoint(e);
+
+  if(!arrowStartPoint){
+    arrowStartPoint={xp, yp};
+    startDot=document.createElement('div');
+    startDot.className='start-dot';
+    startDot.style.left=xp+"%"; startDot.style.top=yp+"%";
+    mapInner.appendChild(startDot);
+  }else{
+    const g = createArrowGroup(arrowStartPoint.xp, arrowStartPoint.yp, xp, yp);
+    arrowLayer.appendChild(g);
+    arrowStartPoint=null;
+    if(startDot){ startDot.remove(); startDot=null; }
+    saveState();
+  }
+});
+
+
+
+
+function ensureArrowMarker(){
+  if(arrowLayer.querySelector("#arrowhead")) return;
+  const defs=document.createElementNS("http://www.w3.org/2000/svg","defs");
+  const marker=document.createElementNS("http://www.w3.org/2000/svg","marker");
+  marker.setAttribute("id","arrowhead");
+marker.setAttribute("markerWidth","8");
+marker.setAttribute("markerHeight","5");
+marker.setAttribute("refX","6"); // ★8→6 に変更（棒が2px短くなる）
+marker.setAttribute("refY","2.5");
+
+  marker.setAttribute("orient","auto");
+  const path=document.createElementNS("http://www.w3.org/2000/svg","path");
+path.setAttribute("d","M0,0 L8,2.5 L0,5 Z");
+  path.setAttribute("fill","black");
+  marker.appendChild(path);
+  defs.appendChild(marker);
+  arrowLayer.appendChild(defs);
+}
+ensureArrowMarker();
+function createArrowGroup(x1p,y1p,x2p,y2p){
+  const g=document.createElementNS("http://www.w3.org/2000/svg","g");
+  g.classList.add("arrow-group");
+  g.dataset.x1p=x1p; g.dataset.y1p=y1p; g.dataset.x2p=x2p; g.dataset.y2p=y2p;
+  const hit=document.createElementNS("http://www.w3.org/2000/svg","line");
+  hit.setAttribute("class","arrow-hit");
+  const vis=document.createElementNS("http://www.w3.org/2000/svg","line");
+  vis.setAttribute("class","arrow-vis");
+  vis.setAttribute("marker-end","url(#arrowhead)");
+  g.appendChild(hit); g.appendChild(vis);
+  applyArrowPixelPositions(g);
+  g.addEventListener("contextmenu",e=>{e.preventDefault(); g.remove(); saveState();});
+  let dragging=false, prev=null;
+  g.addEventListener("mousedown",e=>{
+if (e.button !== 0) return; // ★左クリック以外は無視
+    dragging=true; prev=getRelPercentPoint(e);
+    e.preventDefault(); isDraggingSomething=true;
+  });
+  document.addEventListener("mousemove",e=>{
+    if(!dragging) return;
+    const p=getRelPercentPoint(e);
+    const dx = p.x - prev.x, dy = p.y - prev.y;
+    g.dataset.x1p = (+g.dataset.x1p) + dx;
+    g.dataset.y1p = (+g.dataset.y1p) + dy;
+    g.dataset.x2p = (+g.dataset.x2p) + dx;
+    g.dataset.y2p = (+g.dataset.y2p) + dy;
+    prev = p;
+    applyArrowPixelPositions(g);
+  });
+  document.addEventListener("mouseup",()=>{
+    if(dragging){ dragging=false; setTimeout(()=>{ isDraggingSomething=false; saveState(); },50); }
+  });
+  return g;
+}
+function getRelPercentPoint(e){
+ const rect = mapInner.getBoundingClientRect(); // ★修正
+  return { x: ((e.clientX - rect.left) / rect.width ) * 100,
+           y: ((e.clientY - rect.top  ) / rect.height) * 100 };
+}
+
+function applyArrowPixelPositions(g){
+  // ★ポイント：変形後の rect ではなく「レイアウト寸法」を使う
+  const baseW = mapInner.clientWidth;   // ← zoom/pan の影響を受けない幅
+  const baseH = mapInner.clientHeight;  // ← 同上
+
+  const x1 = (+g.dataset.x1p) * baseW / 100;
+  const y1 = (+g.dataset.y1p) * baseH / 100;
+  const x2 = (+g.dataset.x2p) * baseW / 100;
+  const y2 = (+g.dataset.y2p) * baseH / 100;
+
+  const [hit, vis] = g.querySelectorAll('line');
+  [hit,vis].forEach(el=>{
+    el.setAttribute("x1", x1);
+    el.setAttribute("y1", y1);
+    el.setAttribute("x2", x2);
+    el.setAttribute("y2", y2);
+  });
+}
+
+
+
+window.addEventListener('resize', ()=>{document.querySelectorAll('.arrow-group').forEach(applyArrowPixelPositions);});
+
+/* ===== パレット表示制御 ===== */
+function removeFromPalette(type,num){
+  const el=sidebar.querySelector(`.icon[data-type="${type}"][data-num="${num}"]`);
+  if(el) el.style.visibility="hidden";
+}
+function restoreToPalette(type,num){
+  const el=sidebar.querySelector(`.icon[data-type="${type}"][data-num="${num}"]`);
+  if(el) el.style.visibility="visible";
+}
+function restoreAllPalette(){
+  sidebar.querySelectorAll('.icon').forEach(el=>el.style.visibility="visible");
+}
+
+/* ===== 保存／復元 ===== */
+function saveState(){
+  const icons = [...mapInner.querySelectorAll('.placed')].map(el=>({
+    type: el.dataset.type, num:el.dataset.num, xp:+el.dataset.xp, yp:+el.dataset.yp
+  }));
+  const arrows = [...arrowLayer.querySelectorAll('.arrow-group')].map(g=>({
+    x1p:+g.dataset.x1p,y1p:+g.dataset.y1p,x2p:+g.dataset.x2p,y2p:+g.dataset.y2p
+  }));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({icons,arrows}));
+}
+function loadState(){
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if(!raw) return;
+  try{
+    const s=JSON.parse(raw);
+    for(const it of (s.icons||[])){
+      const el=createPlacedIcon(it.type,it.num,it.xp,it.yp);
+      mapInner.appendChild(el);
+      removeFromPalette(it.type,it.num);
+    }
+    for(const a of (s.arrows||[])){
+      const g=createArrowGroup(a.x1p,a.y1p,a.x2p,a.y2p);
+      arrowLayer.appendChild(g);
+    }
+  }catch(e){console.warn('loadState parse error',e);}
+}
+document.getElementById('clearBtn').addEventListener('click',()=>{
+  [...mapInner.querySelectorAll('.placed')].forEach(el=>el.remove());
+  [...arrowLayer.querySelectorAll('.arrow-group')].forEach(g=>g.remove());
+  restoreAllPalette();
+  localStorage.removeItem(STORAGE_KEY);
+});
+
+
+img.addEventListener('load', ()=>{
+  const areaRect = mapArea.getBoundingClientRect();
+  const iw = img.naturalWidth;
+  const ih = img.naturalHeight;
+
+  // 最大フィット倍率を計算
+  const fitZoom = Math.min(areaRect.width / iw, areaRect.height / ih);
+  // 少しだけ縮小して余白を作る
+  zoom = fitZoom * 0.95;
+
+  // パンは中央寄せ不要、0でOK（mapInnerがflex中央なので）
+  panX = 0;
+  panY = 0;
+
+  applyTransform();
+  loadState();
+  document.querySelectorAll('.arrow-group').forEach(applyArrowPixelPositions);
+});
+
+
+sidebar.addEventListener('dragstart',e=>{
+  if(e.target.classList.contains('icon')){
+    e.dataTransfer.setData('type', e.target.dataset.type);
+    e.dataTransfer.setData('num',  e.target.dataset.num);
+  }
+});
+</script>
+</body>
+</html>
