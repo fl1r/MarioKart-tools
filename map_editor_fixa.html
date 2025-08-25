@@ -408,6 +408,7 @@ function saveState(){
     x1p:+g.dataset.x1p,y1p:+g.dataset.y1p,x2p:+g.dataset.x2p,y2p:+g.dataset.y2p
   }));
   localStorage.setItem(STORAGE_KEY, JSON.stringify({icons,arrows}));
+  window.parent.postMessage('map_updated', '*');
 }
 function loadState(){
   const raw = localStorage.getItem(STORAGE_KEY);

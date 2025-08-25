@@ -1,91 +1,212 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
   <meta charset="UTF-8" />
   <title>コースルート</title>
   <style>
-    body { margin: 0; font-family: sans-serif; background: #f5f5f5; }
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      background: #f5f5f5;
+    }
 
     .grid {
       display: grid;
       grid-template-rows: auto 1fr;
-      grid-template-columns: 1fr 1fr; /* 左:操作, 右:マップ+パレット */
+      grid-template-columns: 1fr 1fr;
+      /* 左:操作, 右:マップ+パレット */
       height: 100vh;
     }
-    header { grid-column: 1 / -1; padding: 16px 20px 0; }
+
+    header {
+      grid-column: 1 / -1;
+      padding: 16px 20px 0;
+    }
 
     .controls {
-      grid-row: 2; grid-column: 1;
+      grid-row: 2;
+      grid-column: 1;
       padding: 12px 20px;
-      display: flex; flex-direction: column;
+      display: flex;
+      flex-direction: column;
       gap: 12px;
       overflow-y: auto;
     }
+
     .viewer {
-      grid-row: 2; grid-column: 2;
-      display: flex; flex-direction: row; /* ← マップとパレットを横並び */
-      background: #fff; border-left: 1px solid #ddd;
+      grid-row: 2;
+      grid-column: 2;
+      display: flex;
+      flex-direction: row;
+      /* ← マップとパレットを横並び */
+      background: #fff;
+      border-left: 1px solid #ddd;
       overflow: hidden;
     }
+
     .viewer iframe {
-      flex: 1; /* マップが右半分の左側に広がる */
+      flex: 1;
+      /* マップが右半分の左側に広がる */
       border: none;
     }
 
-    label { margin-right: 8px; }
-    select { margin: 4px; padding: 6px 8px; }
+    label {
+      margin-right: 8px;
+    }
 
-    .memo { display: flex; flex-direction: column; }
-    .memo label { margin-bottom: 4px; font-weight: bold; }
+    select {
+      margin: 4px;
+      padding: 6px 8px;
+    }
+
+    .memo {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .memo label {
+      margin-bottom: 4px;
+      font-weight: bold;
+    }
+
     .memo textarea {
       resize: vertical;
       min-height: 96px;
-      padding: 8px; font-size: 14px;
-      border: 1px solid #ccc; border-radius: 4px; background: #fff;
+      padding: 8px;
+      font-size: 14px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: #fff;
     }
 
-/* ルートメモ・雑感メモは共通の高さ (96px) */
-#routeMemo, #noteMemo {
-  min-height: 96px;
-}
+    /* ルートメモ・雑感メモは共通の高さ (96px) */
+    #routeMemo,
+    #noteMemo {
+      min-height: 96px;
+    }
 
-/* ショートカット解説だけ高くする (144px ≒ 12行) */
-#scMemo {
-  min-height: 144px;
-}
+    /* ショートカット解説だけ高くする (144px ≒ 12行) */
+    #scMemo {
+      min-height: 144px;
+    }
 
 
 
-    .ranking { border:1px solid #ccc; padding:8px; background:#fff; border-radius:6px; }
-    .ranking h3{ margin:0 0 8px 0; font-size:14px; }
-    .ranking-grid{
-      display:grid;
+    .ranking {
+      border: 1px solid #ccc;
+      padding: 8px;
+      background: #fff;
+      border-radius: 6px;
+    }
+
+    .ranking h3 {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+    }
+
+    .ranking-grid {
+      display: grid;
       grid-template-columns: auto 1fr auto 1fr;
       gap: 6px 10px;
       max-height: 190px;
-      overflow-y:auto;
-      padding-right:4px;
+      overflow-y: auto;
+      padding-right: 4px;
     }
-    .rank-label{ display:flex; align-items:center; font-size:13px; white-space:nowrap; }
-    .rank-select{ min-width: 140px; }
+
+    .rank-label {
+      display: flex;
+      align-items: center;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .rank-select {
+      min-width: 140px;
+    }
+
+    #auth-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.7);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+
+    .auth-box {
+      background: #fff;
+      padding: 30px;
+      border-radius: 8px;
+      text-align: center;
+      width: 320px;
+    }
+
+    #password-input {
+      width: 90%;
+      padding: 10px;
+      margin: 15px 0;
+      font-size: 16px;
+    }
+
+    #auth-submit-btn {
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
   </style>
 </head>
+
 <body>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyAui77LEU8EbPbyKbyXQhTvRPbMJQdLvg0",
+      authDomain: "mkworld-a3de2.firebaseapp.com",
+      projectId: "mkworld-a3de2",
+      storageBucket: "mkworld-a3de2.firebasestorage.app",
+      messagingSenderId: "842699753240",
+      appId: "1:842699753240:web:d83dbe63dd815f28c4006d",
+      measurementId: "G-NSMKQS9HHG"
+    };
+
+    // Firebaseの初期化
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+  </script>
+
+  <script src="courses.js"></script>
+  <div id="auth-overlay">
+    <div class="auth-box">
+      <h2 id="auth-title">パスワード認証</h2>
+      <p id="auth-message">このセッションにアクセスするためのパスワードを入力してください。</p>
+      <input type="password" id="password-input" placeholder="パスワード">
+      <button id="auth-submit-btn">入室</button>
+      <p id="error-message" style="color: red;"></p>
+    </div>
+  </div>
   <div class="grid">
-    <header><h1 style="margin:0;">コースルート</h1></header>
+    <header>
+      <h1 style="margin:0;">コースルート</h1>
+    </header>
 
     <div class="controls">
       <div>
         <label>始点：
           <select id="start"></select>
         </label>
-<button id="swapBtn" title="始点と終点を入れ替え">↔</button>
+        <button id="swapBtn" title="始点と終点を入れ替え">↔</button>
         <label>終点：
           <select id="end"></select>
         </label>
-<button id="exportBtn">データ全出力</button>
-<button id="importBtn">データ読込</button>
-<input type="file" id="importFile" accept="application/json" style="display:none;">
+        <button id="exportBtn">データ全出力</button>
+        <button id="importBtn">データ読込</button>
+        <input type="file" id="importFile" accept="application/json" style="display:none;">
 
 
       </div>
@@ -100,10 +221,10 @@
         <textarea id="routeMemo"></textarea>
       </div>
 
-<div class="memo">
-  <label for="scMemo">ショートカット解説</label>
-  <textarea id="scMemo"></textarea>
-</div>
+      <div class="memo">
+        <label for="scMemo">ショートカット解説</label>
+        <textarea id="scMemo"></textarea>
+      </div>
 
       <div class="memo">
         <label for="noteMemo">雑感メモ</label>
@@ -112,293 +233,325 @@
     </div>
 
     <div class="viewer">
-      <iframe id="mapFrame" src="map_editor_fixa.html"></iframe>
+      <iframe id="mapFrame"></iframe>
       <!-- パレットは map_editor_fixa.html 内にあるので別枠不要 -->
     </div>
   </div>
 
   <script src="courses.js"></script>
   <script>
-    const startEl   = document.getElementById('start');
-    const endEl     = document.getElementById('end');
-    const mapFrame  = document.getElementById('mapFrame');
+    //================================================================
+    // 1. グローバル変数と要素の取得
+    //================================================================
+    const startEl = document.getElementById('start');
+    const endEl = document.getElementById('end');
+    const mapFrame = document.getElementById('mapFrame');
     const routeMemo = document.getElementById('routeMemo');
-    const noteMemo  = document.getElementById('noteMemo');
+    const noteMemo = document.getElementById('noteMemo');
+    const scMemo = document.getElementById('scMemo');
     const rankingGrid = document.getElementById('rankingGrid');
+    const swapBtn = document.getElementById('swapBtn');
+    const mainContent = document.querySelector('.grid');
+    const authOverlay = document.getElementById('auth-overlay');
+    const authTitle = document.getElementById('auth-title');
+    const authMessage = document.getElementById('auth-message');
+    const passwordInput = document.getElementById('password-input');
+    const authSubmitBtn = document.getElementById('auth-submit-btn');
+    const errorMessage = document.getElementById('error-message');
 
-const scMemo  = document.getElementById('scMemo');
-
-function saveMemos() {
-  const s = startEl.value, e = endEl.value;
-  localStorage.setItem(keyMemo(s,e), JSON.stringify({
-    route: routeMemo.value,
-    sc: scMemo.value,
-    note: noteMemo.value
-  }));
-}
-
-function loadMemos() {
-  const s = startEl.value, e = endEl.value;
-  const raw = localStorage.getItem(keyMemo(s,e));
-  if (raw) {
-    const obj = JSON.parse(raw);
-    routeMemo.value = obj.route || '';
-    scMemo.value    = obj.sc    || '';
-    noteMemo.value  = obj.note  || '';
-  } else {
-    routeMemo.value = '';
-    scMemo.value    = '';
-    noteMemo.value  = '';
-  }
-}
-
-
-routeMemo.addEventListener('input', saveMemos);
-scMemo   .addEventListener('input', saveMemos);
-noteMemo .addEventListener('input', saveMemos);
-
-
-
-    const starts = [...new Set(routes.map(r => r[0]))];
-    for (const jp of starts) {
-      const opt = document.createElement('option');
-      opt.value = jp; opt.textContent = jp;
-      startEl.appendChild(opt);
-    }
-
-    const keyMemo = (s,e) => `memo_${s}_${e}`;
+    let sessionId;
+    let isRemoteChange = false;
+    const keyMemo = (s, e) => `memo_${s}_${e}`;
     const keyRanking = (s) => `ranking_${s}`;
     const keyLastSel = "last_selection";
 
-    function endsForStart(s) { return routes.filter(r => r[0] === s).map(r => r[1]); }
+    //================================================================
+    // 2. UIの初期化と更新を行うコア関数
+    //================================================================
+    function initializeUI() {
+      mainContent.style.display = 'grid'; // メインコンテンツを表示
+      authOverlay.style.display = 'none'; // 認証画面を非表示
 
-    // --- メモ保存/読込 ---
-
-
-// ===== エクスポート =====
-document.getElementById("exportBtn").addEventListener("click", () => {
-  const allData = {};
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    try {
-      allData[key] = JSON.parse(localStorage.getItem(key));
-    } catch {
-      allData[key] = localStorage.getItem(key);
-    }
-  }
-  const blob = new Blob([JSON.stringify(allData, null, 2)], {type: "application/json"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "data.json";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-});
-
-// ===== インポート =====
-document.getElementById("importBtn").addEventListener("click", () => {
-  document.getElementById("importFile").click();
-});
-
-document.getElementById("importFile").addEventListener("change", (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    try {
-      const data = JSON.parse(ev.target.result);
-
-      // localStorage に上書き保存
-      for (const [key, value] of Object.entries(data)) {
-        localStorage.setItem(key, JSON.stringify(value));
+      const starts = [...new Set(routes.map(r => r[0]))];
+      startEl.innerHTML = '';
+      for (const jp of starts) {
+        const opt = new Option(jp, jp);
+        startEl.appendChild(opt);
       }
 
-      alert("データを読み込みました。ページを再読み込みすると反映されます。");
-      // 即反映したければ次の行のコメントアウトを外す
-      // location.reload();
-    } catch (err) {
-      alert("読み込みエラー: " + err.message);
-    }
-  };
-  reader.readAsText(file);
-});
-
-
-
-    // --- 順位関連 ---
-    function sanitizeRanking(rank, ends) {
-      const seen = new Set(), out = [];
-      for (const e of (rank||[])) {
-        if (ends.includes(e) && !seen.has(e)) { out.push(e); seen.add(e); }
+      const raw = localStorage.getItem(keyLastSel);
+      if (raw) {
+        try {
+          const obj = JSON.parse(raw);
+          if (starts.includes(obj.start)) startEl.value = obj.start;
+        } catch { }
       }
-      for (const e of ends) if (!seen.has(e)) out.push(e);
-      return out;
+
+      refreshEnds();
+      listenForChanges();
     }
-    function getRanking(s) {
-      const ends = endsForStart(s);
-      const raw = localStorage.getItem(keyRanking(s));
-      const rank = raw ? JSON.parse(raw) : null;
-      return sanitizeRanking(rank, ends);
-    }
-    function setRanking(s, rank) {
-      localStorage.setItem(keyRanking(s), JSON.stringify(rank));
-    }
-    function setRankAt(pos, value) {
+
+    function refreshEnds() {
       const s = startEl.value;
+      const currentEnd = endEl.value;
+      endEl.innerHTML = "";
       const ends = endsForStart(s);
-      let rank = getRanking(s).filter(v => v !== value);
-      for (const e of ends) if (!rank.includes(e)) rank.push(e);
-      rank.splice(pos, 0, value);
-      rank = rank.slice(0, ends.length);
-      setRanking(s, rank);
+      ends.forEach(e => {
+        const opt = new Option(e, e);
+        endEl.add(opt);
+      });
+      if (ends.includes(currentEnd)) {
+        endEl.value = currentEnd;
+      } else {
+        endEl.value = ends[0] || "";
+      }
       renderRanking();
+      updateMap();
     }
-    function renderRanking() {
-      rankingGrid.innerHTML = '';
-      const s = startEl.value, ends = endsForStart(s), rank = getRanking(s);
-      for (let i = 0; i < ends.length; i += 2) {
-        addRankCell(i,   rank[i]   ?? ends[i],   ends);
-        if (i+1 < ends.length) addRankCell(i+1, rank[i+1] ?? ends[i+1], ends);
-      }
-    }
-    function addRankCell(pos, selectedValue, ends) {
-      const label = document.createElement('div');
-      label.className = 'rank-label';
-      label.textContent = `${pos+1}位`;
-      const sel = document.createElement('select');
-      sel.className = 'rank-select';
-      for (const e of ends) {
-        const opt = document.createElement('option');
-        opt.value = e; opt.textContent = e;
-        if (e === selectedValue) opt.selected = true;
-        sel.appendChild(opt);
-      }
-      sel.addEventListener('change', () => setRankAt(pos, sel.value));
-      rankingGrid.appendChild(label);
-      rankingGrid.appendChild(sel);
-    }
-
-    // --- 始点・終点選択 ---
-function refreshEnds() {
-  const s = startEl.value;
-  const currentEnd = endEl.value; // 現在の終点を保持
-
-  endEl.innerHTML = "";
-  const ends = endsForStart(s);
-  ends.forEach(e => {
-    const opt = document.createElement("option");
-    opt.value = e;
-    opt.textContent = e;
-    endEl.appendChild(opt);
-  });
-
-  // 候補に残っているなら保持、無ければ「コース単体」→それも無ければ先頭
-  if (ends.includes(currentEnd)) {
-    endEl.value = currentEnd;
-  } else if (ends.includes("コース単体")) {
-    endEl.value = "コース単体";
-  } else {
-    endEl.value = ends.length ? ends[0] : "";
-  }
-
-  // ★ここからが「はみ出していた4行」：関数の中に入れる
-  renderRanking();
-  if (!endEl.value && ends.length) endEl.value = getRanking(s)[0] || ends[0];
-  updateMap(); 
-  loadMemos();
-  saveLastSelection();
-}
-
-
 
     function updateMap() {
       const s = startEl.value, e = endEl.value;
       if (!e) return;
       mapFrame.src = `map_editor_fixa.html?start=${encodeURIComponent(s)}&end=${encodeURIComponent(e)}`;
+      localStorage.setItem(keyLastSel, JSON.stringify({ start: s, end: e }));
       loadMemos();
-      saveLastSelection();
+      saveDataToFirebase();
     }
 
-    startEl.addEventListener('change', refreshEnds);
-    endEl  .addEventListener('change', updateMap);
-
-    // --- 最後の選択を保存/復元 ---
-    function saveLastSelection() {
-      localStorage.setItem(keyLastSel, JSON.stringify({start: startEl.value, end: endEl.value}));
+    //================================================================
+    // 3. データの保存と読み込み（localStorage <-> UI）
+    //================================================================
+    function saveMemos() {
+      const s = startEl.value, e = endEl.value;
+      localStorage.setItem(keyMemo(s, e), JSON.stringify({
+        route: routeMemo.value, sc: scMemo.value, note: noteMemo.value
+      }));
     }
-    function loadLastSelection() {
-      const raw = localStorage.getItem(keyLastSel);
-      if (!raw) return false;
-      try {
-        const obj = JSON.parse(raw);
-        if (starts.includes(obj.start)) {
-          startEl.value = obj.start;
-          refreshEnds();
-          if (endsForStart(obj.start).includes(obj.end)) {
-            endEl.value = obj.end;
-            updateMap();
-          }
-          return true;
+
+    function loadMemos() {
+      const s = startEl.value, e = endEl.value;
+      const raw = localStorage.getItem(keyMemo(s, e));
+      const obj = raw ? JSON.parse(raw) : {};
+      routeMemo.value = obj.route || '';
+      scMemo.value = obj.sc || '';
+      noteMemo.value = obj.note || '';
+    }
+
+    function renderRanking() {
+      rankingGrid.innerHTML = '';
+      const s = startEl.value, ends = endsForStart(s), rank = getRanking(s);
+      for (let i = 0; i < ends.length; i++) {
+        const label = document.createElement('div');
+        label.className = 'rank-label';
+        label.textContent = `${i + 1}位`;
+        const sel = document.createElement('select');
+        for (const e of ends) {
+          const opt = new Option(e, e);
+          if (e === rank[i]) opt.selected = true;
+          sel.appendChild(opt);
         }
-      } catch {}
-      return false;
+        sel.addEventListener('change', () => setRankAt(i, sel.value));
+        rankingGrid.appendChild(label);
+        rankingGrid.appendChild(sel);
+      }
     }
 
-document.getElementById('swapBtn').addEventListener('click', () => {
-  const start = startEl.value;
-  const end   = endEl.value;
+    function setRankAt(pos, value) {
+      const s = startEl.value;
+      const rank = getRanking(s).filter(v => v !== value);
+      rank.splice(pos, 0, value);
+      localStorage.setItem(keyRanking(s), JSON.stringify(rank));
+      renderRanking();
+      saveDataToFirebase();
+    }
 
+    function getRanking(s) {
+      const ends = endsForStart(s);
+      const raw = localStorage.getItem(keyRanking(s));
+      const rank = raw ? JSON.parse(raw) : [];
+      const seen = new Set(), out = [];
+      for (const e of rank) if (ends.includes(e) && !seen.has(e)) { out.push(e); seen.add(e); }
+      for (const e of ends) if (!seen.has(e)) out.push(e);
+      return out;
+    }
 
-  // ★ 追加: 終点が「コース単体」なら入れ替えしない
-  if (end === "コース単体") return;
+    function endsForStart(s) { return routes.filter(r => r[0] === s).map(r => r[1]); }
 
-  if (!end) return; // 終点未選択なら何もしない
+    //================================================================
+    // 4. Firebase連携と認証
+    //================================================================
+    function saveDataToFirebase() {
+      if (isRemoteChange || !sessionId) return;
+      const allData = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        allData[key] = localStorage.getItem(key);
+      }
+      db.collection('sessions').doc(sessionId).update({ data: JSON.stringify(allData) });
+    }
 
-  // 入れ替え
-  startEl.value = end;
-  endEl.value   = start;
+function listenForChanges() {
+    if (!sessionId) return;
+    db.collection('sessions').doc(sessionId).onSnapshot((doc) => {
+        if (doc.exists && !isRemoteChange) {
+            console.log("外部からの変更を検知。UIを更新します。");
+            isRemoteChange = true;
 
-  // 終点候補を作り直し
-  if (typeof refreshEnds === 'function') {
-    refreshEnds();
+            // 1. localStorageを最新データで更新
+            localStorage.clear();
+            const remoteData = JSON.parse(doc.data().data);
+            for (const [key, value] of Object.entries(remoteData)) {
+                localStorage.setItem(key, value);
+            }
 
-    // refreshEnds() の後に終点を再設定（候補にあれば保持）
-    if ([...endEl.options].some(o => o.value === start)) {
-      endEl.value = start;
-    } 
-    // 特例: ピーチスタジアム ↔ レインボーロード
-    else if (start === "ピーチスタジアム" && end === "レインボーロード") {
-      if ([...endEl.options].some(o => o.value === "コース単体")) {
-        endEl.value = "コース単体";
+            // 2. リロードせず、UI描画の起点となる関数を直接呼び出す
+            initializeUI();
+
+            // 3. 短い遅延の後、フラグを戻して次の変更を受け付ける準備をする
+            setTimeout(() => { isRemoteChange = false; }, 200);
+        }
+    });
+}
+
+    async function handleAuthentication() {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('session')) {
+        sessionId = params.get('session');
       } else {
-        endEl.value = "";
+        sessionId = Math.random().toString(36).substring(2, 12);
+        window.history.replaceState(null, '', `?session=${sessionId}`);
+      }
+
+      // 認証済みならUI初期化、そうでなければ認証フローへ
+      if (sessionStorage.getItem('authenticated_session_id') === sessionId) {
+        initializeUI();
+        return;
+      }
+
+      // 認証がまだなので、UIは隠して認証画面を表示
+      mainContent.style.display = 'none';
+      authOverlay.style.display = 'flex';
+
+      const docRef = db.collection('sessions').doc(sessionId);
+      const doc = await docRef.get();
+
+      if (!doc.exists) { // 新規セッション
+        authTitle.textContent = '新しいセッションを作成';
+        authMessage.textContent = 'この部屋の合言葉（パスワード）を設定してください。';
+        authSubmitBtn.textContent = '作成して入室';
+        authSubmitBtn.onclick = async () => {
+          const password = passwordInput.value;
+          if (password.length < 4) {
+            errorMessage.textContent = 'パスワードは4文字以上で設定してください。';
+            return;
+          }
+          localStorage.clear(); // ここでクリア
+          await docRef.set({ password: password, data: '{}' });
+          sessionStorage.setItem('authenticated_session_id', sessionId);
+          location.reload(); // 準備完了後、リロード
+        };
+      } else { // 既存セッション
+        const correctPassword = doc.data().password;
+        authSubmitBtn.onclick = () => {
+          if (passwordInput.value === correctPassword) {
+            localStorage.clear(); // ここでもクリア
+            const remoteData = JSON.parse(doc.data().data);
+            for (const [key, value] of Object.entries(remoteData)) {
+              localStorage.setItem(key, value);
+            }
+            sessionStorage.setItem('authenticated_session_id', sessionId);
+            location.reload(); // 準備完了後、リロード
+          } else {
+            errorMessage.textContent = 'パスワードが違います。';
+          }
+        };
       }
     }
-    // それ以外は「コース単体」があればコース単体、無ければ空
-    else if ([...endEl.options].some(o => o.value === "コース単体")) {
-      endEl.value = "コース単体";
-    } else {
-      endEl.value = "";
-    }
-  }
 
-  if (typeof updateMap === 'function')   updateMap();
-  if (typeof saveSelection === 'function') saveSelection();
-});
-
-
-
-
-    // --- 初期化 ---
-    if (starts.length) {
-      if (!loadLastSelection()) {
-        startEl.value = starts[0];
-        refreshEnds();
+    //================================================================
+    // 5. イベントリスナーの設定
+    //================================================================
+    startEl.addEventListener('change', refreshEnds);
+    endEl.addEventListener('change', updateMap);
+    routeMemo.addEventListener('input', () => { saveMemos(); saveDataToFirebase(); });
+    scMemo.addEventListener('input', () => { saveMemos(); saveDataToFirebase(); });
+    noteMemo.addEventListener('input', () => { saveMemos(); saveDataToFirebase(); });
+    window.addEventListener('message', (event) => {
+      if (event.data === 'map_updated') {
+        saveDataToFirebase();
       }
+    });
+
+    const exportBtn = document.getElementById('exportBtn');
+    const importBtn = document.getElementById('importBtn');
+    const importFile = document.getElementById('importFile');
+
+    if (exportBtn && importBtn && importFile) {
+      // エクスポートボタンの動作
+      exportBtn.addEventListener('click', () => {
+        const allData = {};
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          allData[key] = localStorage.getItem(key);
+        }
+        const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `session_${sessionId}_backup.json`;
+        document.body.appendChild(a);
+        a.click();
+        URL.revokeObjectURL(url);
+        a.remove();
+      });
+
+      // インポートボタンの動作
+      importBtn.addEventListener('click', () => {
+        if (confirm('警告：現在のセッションの全データが、読み込んだファイルの内容で上書きされます。この操作は元に戻せません。本当によろしいですか？')) {
+          importFile.click();
+        }
+      });
+
+      // ファイルが選択された時の動作
+      importFile.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const dataToImport = JSON.parse(event.target.result);
+
+            // localStorageをインポートデータで上書き
+            localStorage.clear();
+            for (const [key, value] of Object.entries(dataToImport)) {
+              localStorage.setItem(key, value);
+            }
+
+            // Firebaseに直接保存し、他の参加者にも同期させる
+            saveDataToFirebase();
+
+            // 自分の画面もリロードして即時反映
+            alert('データを読み込みました。ページを更新します。');
+            location.reload();
+
+          } catch (err) {
+            alert('ファイルの読み込みに失敗しました: ' + err.message);
+          }
+        };
+        reader.readAsText(file);
+        e.target.value = ''; // 同じファイルを連続で読み込めるようにする
+      });
     }
+    
+    //================================================================
+    // 6. 起動処理
+    //================================================================
+    window.onload = function () {
+      handleAuthentication();
+    };
   </script>
+
 </body>
+
 </html>
