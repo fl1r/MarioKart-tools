@@ -455,6 +455,26 @@
     //================================================================
     startEl.addEventListener('change', refreshEnds);
     endEl.addEventListener('change', updateMap);
+    document.getElementById('swapBtn').addEventListener('click', () => {
+      const startVal = startEl.value;
+      const endVal = endEl.value;
+
+      // 終点が「コース単体」または未選択の場合は入れ替えない
+      if (endVal === "コース単体" || !endVal) return;
+
+      // 始点に、現在の終点を設定
+      startEl.value = endVal;
+
+      // 始点の変更に伴い、終点の候補リストを更新（この中でupdateMapも呼ばれる）
+      refreshEnds();
+
+      // 新しい終点候補の中に、元の始点が存在すれば、それを選択する
+      if ([...endEl.options].some(o => o.value === startVal)) {
+        endEl.value = startVal;
+        // 終点の値が確定したので、再度マップを更新する
+        updateMap();
+      }
+    });
     routeMemo.addEventListener('input', () => { saveMemos(); saveDataToFirebase(); });
     scMemo.addEventListener('input', () => { saveMemos(); saveDataToFirebase(); });
     noteMemo.addEventListener('input', () => { saveMemos(); saveDataToFirebase(); });
