@@ -22,6 +22,9 @@
     header {
       grid-column: 1 / -1;
       padding: 16px 20px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
 
     .controls {
@@ -158,6 +161,10 @@
       font-size: 16px;
       cursor: pointer;
     }
+
+    .hidden-by-lock {
+      display: none !important;
+    }
   </style>
 </head>
 
@@ -193,6 +200,9 @@
   <div class="grid">
     <header>
       <h1 style="margin:0;">コースルート</h1>
+      <label for="lockEndCheckbox" style="margin-left: 10px; user-select: none;">
+        <input type="checkbox" id="lockEndCheckbox"> 終点を「コース単体」に固定
+      </label>
     </header>
 
     <div class="controls">
@@ -251,6 +261,9 @@
     const scMemo = document.getElementById('scMemo');
     const rankingGrid = document.getElementById('rankingGrid');
     const mainContent = document.querySelector('.grid');
+    const lockEndCheckbox = document.getElementById('lockEndCheckbox');
+    const endLabel = endEl.parentElement; // 「終点：」のラベルごと取得
+    const rankingCategory = document.querySelector('.ranking');
     const authOverlay = document.getElementById('auth-overlay');
     const authTitle = document.getElementById('auth-title');
     const authMessage = document.getElementById('auth-message');
@@ -450,9 +463,33 @@
       }
     }
 
+    function toggleEndLock() {
+      const isLocked = lockEndCheckbox.checked;
+
+      // チェック 상태に 따라 class를 추가/제거
+      endLabel.classList.toggle('hidden-by-lock', isLocked);
+      rankingCategory.classList.toggle('hidden-by-lock', isLocked);
+
+      if (isLocked) {
+        // チェックがついている場合、終点を「コース単体」に設定
+        endEl.value = "コース単体";
+      }
+
+      // マップとデータを更新
+      updateMap();
+    }
+
     //================================================================
     // 5. イベントリスナーの設定
     //================================================================
+    lockEndCheckbox.addEventListener('change', toggleEndLock);
+    startEl.addEventListener('change', () => {
+      // 始点が変更された時も、ロック状態を再評価する
+      if (lockEndCheckbox.checked) {
+        endEl.value = "コース単体";
+        updateMap();
+      }
+    });
     startEl.addEventListener('change', refreshEnds);
     endEl.addEventListener('change', updateMap);
     document.getElementById('swapBtn').addEventListener('click', () => {
