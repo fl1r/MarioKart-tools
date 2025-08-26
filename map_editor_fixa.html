@@ -67,6 +67,14 @@
   .nisc{border-radius:50%;background:var(--nisc-bg);}
   .itembox{border-radius:6px;background:var(--itembox-bg);}
 
+/* アイコンのテキストを選択・コピーできないようにする */
+.icon, .placed {
+  -webkit-user-select: none; /* Safari, Chrome などの古いブラウザ用 */
+  -moz-user-select: none;    /* Firefox の古いブラウザ用 */
+  -ms-user-select: none;     /* Internet Explorer, Edge 用 */
+  user-select: none;         /* 標準の書き方 */
+}
+
 /* マップ上のアイコンを一回り小さくし、中心基準にする */
 .placed{
   position:absolute;cursor:move;
@@ -242,28 +250,61 @@ function setIconPos(el, xp, yp){
   el.dataset.xp = xp;
   el.dataset.yp = yp;
 }
-function startDragIcon(e){
-if (e.button !== 0) return; // ★左クリック以外は無視
+function startDragIcon(e) {
+  if (e.button !== 0) return; // 左クリック以外は無視
   dragTarget=e.target;
   isDraggingSomething=true;
-  const rect=dragTarget.getBoundingClientRect();
-  offsetX=e.clientX-rect.left;
-  offsetY=e.clientY-rect.top;
+  
+  const mousePercent = getMapPercentPoint(e);
+  const iconX = +dragTarget.dataset.xp;
+  const iconY = +dragTarget.dataset.yp;
+  offsetX = mousePercent.xp - iconX;
+  offsetY = mousePercent.yp - iconY;
+
+  // ドラッグ中はコンテキストメニューを無効化する
+  const preventContextMenu = (ev) => ev.preventDefault();
+  document.addEventListener('contextmenu', preventContextMenu);
+
   document.addEventListener('mousemove',onDragIcon);
-  document.addEventListener('mouseup',endDragIcon);
+  
+  // endDragIcon内でcontextmenuリスナーを削除するため、一度だけ実行するリスナーを定義
+  const endDragHandler = (ev) => {
+    // 自身を削除
+    document.removeEventListener('mouseup', endDragHandler);
+    // contextmenuリスナーも削除
+    document.removeEventListener('contextmenu', preventContextMenu);
+    // 本来の終了処理を呼び出す
+    endDragIcon(ev);
+  };
+  document.addEventListener('mouseup', endDragHandler);
 }
-function onDragIcon(e){
-  if(!dragTarget)return;
+function onDragIcon(e) {
+  if (!dragTarget) return;
   e.preventDefault();
-  const rect=mapInner.getBoundingClientRect();
-  const x=((e.clientX-rect.left-offsetX)/rect.width )*100;
-  const y=((e.clientY-rect.top -offsetY)/rect.height)*100;
-  setIconPos(dragTarget, x, y);
+  
+  // 現在のマウス位置をマップ内のパーセント座標で取得
+  const mousePercent = getMapPercentPoint(e);
+  
+  // 新しいアイコンの位置を計算
+  const newX = mousePercent.xp - offsetX;
+  const newY = mousePercent.yp - offsetY;
+  
+  setIconPos(dragTarget, newX, newY);
 }
-function endDragIcon(){
-  document.removeEventListener('mousemove',onDragIcon);
-  document.removeEventListener('mouseup',endDragIcon);
-  setTimeout(()=>{ isDraggingSomething=false; saveState(); },50);
+function endDragIcon(e) { // e を受け取るように変更
+  // 左クリックのmouseup以外は無視する
+  if (e.button !== 0) return;
+
+  // mousemoveリスナーはここで削除
+  document.removeEventListener('mousemove', onDragIcon);
+  
+  // mouseupとcontextmenuのリスナーはendDragHandler内で削除されるので、
+  // ここで削除する必要はありません。
+
+  setTimeout(() => {
+    isDraggingSomething = false;
+    saveState();
+  }, 50);
 }
 
 function getMapPercentPoint(e) {
