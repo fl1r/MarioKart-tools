@@ -250,7 +250,6 @@
     const noteMemo = document.getElementById('noteMemo');
     const scMemo = document.getElementById('scMemo');
     const rankingGrid = document.getElementById('rankingGrid');
-    const swapBtn = document.getElementById('swapBtn');
     const mainContent = document.querySelector('.grid');
     const authOverlay = document.getElementById('auth-overlay');
     const authTitle = document.getElementById('auth-title');
@@ -260,7 +259,7 @@
     const errorMessage = document.getElementById('error-message');
 
     let sessionId;
-    let isRemoteChange = false;
+    const clientInstanceId = Math.random().toString(36).substring(2);
     const keyMemo = (s, e) => `memo_${s}_${e}`;
     const keyRanking = (s) => `ranking_${s}`;
     const keyLastSel = "last_selection";
@@ -269,15 +268,12 @@
     // 2. UIの初期化と更新を行うコア関数
     //================================================================
     function initializeUI() {
-      mainContent.style.display = 'grid'; // メインコンテンツを表示
-      authOverlay.style.display = 'none'; // 認証画面を非表示
+      mainContent.style.display = 'grid';
+      authOverlay.style.display = 'none';
 
       const starts = [...new Set(routes.map(r => r[0]))];
       startEl.innerHTML = '';
-      for (const jp of starts) {
-        const opt = new Option(jp, jp);
-        startEl.appendChild(opt);
-      }
+      starts.forEach(jp => startEl.add(new Option(jp, jp)));
 
       const raw = localStorage.getItem(keyLastSel);
       if (raw) {
@@ -296,15 +292,14 @@
       const currentEnd = endEl.value;
       endEl.innerHTML = "";
       const ends = endsForStart(s);
-      ends.forEach(e => {
-        const opt = new Option(e, e);
-        endEl.add(opt);
-      });
+      ends.forEach(e => endEl.add(new Option(e, e)));
+
       if (ends.includes(currentEnd)) {
         endEl.value = currentEnd;
       } else {
         endEl.value = ends[0] || "";
       }
+
       renderRanking();
       updateMap();
     }
@@ -312,7 +307,12 @@
     function updateMap() {
       const s = startEl.value, e = endEl.value;
       if (!e) return;
-      mapFrame.src = `map_editor_fixa.html?start=${encodeURIComponent(s)}&end=${encodeURIComponent(e)}`;
+
+      const newSrc = `map_editor_fixa.html?start=${encodeURIComponent(s)}&end=${encodeURIComponent(e)}`;
+      if (mapFrame.getAttribute('src') !== newSrc) {
+        mapFrame.src = newSrc;
+      }
+
       localStorage.setItem(keyLastSel, JSON.stringify({ start: s, end: e }));
       loadMemos();
       saveDataToFirebase();
@@ -322,15 +322,13 @@
     // 3. データの保存と読み込み（localStorage <-> UI）
     //================================================================
     function saveMemos() {
-      const s = startEl.value, e = endEl.value;
-      localStorage.setItem(keyMemo(s, e), JSON.stringify({
+      localStorage.setItem(keyMemo(startEl.value, endEl.value), JSON.stringify({
         route: routeMemo.value, sc: scMemo.value, note: noteMemo.value
       }));
     }
 
     function loadMemos() {
-      const s = startEl.value, e = endEl.value;
-      const raw = localStorage.getItem(keyMemo(s, e));
+      const raw = localStorage.getItem(keyMemo(startEl.value, endEl.value));
       const obj = raw ? JSON.parse(raw) : {};
       routeMemo.value = obj.route || '';
       scMemo.value = obj.sc || '';
@@ -340,27 +338,24 @@
     function renderRanking() {
       rankingGrid.innerHTML = '';
       const s = startEl.value, ends = endsForStart(s), rank = getRanking(s);
-      for (let i = 0; i < ends.length; i++) {
+      ends.forEach((e, i) => {
         const label = document.createElement('div');
         label.className = 'rank-label';
         label.textContent = `${i + 1}位`;
         const sel = document.createElement('select');
-        for (const e of ends) {
-          const opt = new Option(e, e);
-          if (e === rank[i]) opt.selected = true;
-          sel.appendChild(opt);
-        }
+        ends.forEach(optionEnd => sel.add(new Option(optionEnd, optionEnd)));
+        sel.value = rank[i] || e;
         sel.addEventListener('change', () => setRankAt(i, sel.value));
         rankingGrid.appendChild(label);
         rankingGrid.appendChild(sel);
-      }
+      });
     }
 
     function setRankAt(pos, value) {
       const s = startEl.value;
       const rank = getRanking(s).filter(v => v !== value);
       rank.splice(pos, 0, value);
-      localStorage.setItem(keyRanking(s), JSON.stringify(rank));
+      localStorage.setItem(keyRanking(s), JSON.stringify(rank.slice(0, endsForStart(s).length)));
       renderRanking();
       saveDataToFirebase();
     }
@@ -368,11 +363,9 @@
     function getRanking(s) {
       const ends = endsForStart(s);
       const raw = localStorage.getItem(keyRanking(s));
-      const rank = raw ? JSON.parse(raw) : [];
-      const seen = new Set(), out = [];
-      for (const e of rank) if (ends.includes(e) && !seen.has(e)) { out.push(e); seen.add(e); }
-      for (const e of ends) if (!seen.has(e)) out.push(e);
-      return out;
+      let rank = raw ? JSON.parse(raw) : [];
+      const seen = new Set(rank);
+      return [...rank, ...ends.filter(e => !seen.has(e))];
     }
 
     function endsForStart(s) { return routes.filter(r => r[0] === s).map(r => r[1]); }
@@ -381,54 +374,44 @@
     // 4. Firebase連携と認証
     //================================================================
     function saveDataToFirebase() {
-      if (isRemoteChange || !sessionId) return;
+      if (!sessionId) return;
       const allData = {};
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         allData[key] = localStorage.getItem(key);
       }
-      db.collection('sessions').doc(sessionId).update({ data: JSON.stringify(allData) });
+      db.collection('sessions').doc(sessionId).update({
+        data: JSON.stringify(allData),
+        senderId: clientInstanceId
+      });
     }
 
-function listenForChanges() {
-    if (!sessionId) return;
-    db.collection('sessions').doc(sessionId).onSnapshot((doc) => {
-        if (doc.exists && !isRemoteChange) {
-            console.log("外部からの変更を検知。UIを更新します。");
-            isRemoteChange = true;
-
-            // 1. localStorageを最新データで更新
-            localStorage.clear();
-            const remoteData = JSON.parse(doc.data().data);
-            for (const [key, value] of Object.entries(remoteData)) {
-                localStorage.setItem(key, value);
-            }
-
-            // 2. リロードせず、UI描画の起点となる関数を直接呼び出す
-            initializeUI();
-
-            // 3. 短い遅延の後、フラグを戻して次の変更を受け付ける準備をする
-            setTimeout(() => { isRemoteChange = false; }, 200);
+    function listenForChanges() {
+      if (!sessionId) return;
+      db.collection('sessions').doc(sessionId).onSnapshot((doc) => {
+        if (doc.exists && doc.data().senderId !== clientInstanceId) {
+          localStorage.clear();
+          const remoteData = JSON.parse(doc.data().data);
+          for (const [key, value] of Object.entries(remoteData)) {
+            localStorage.setItem(key, value);
+          }
+          initializeUI();
         }
-    });
-}
+      });
+    }
 
     async function handleAuthentication() {
       const params = new URLSearchParams(window.location.search);
-      if (params.has('session')) {
-        sessionId = params.get('session');
-      } else {
-        sessionId = Math.random().toString(36).substring(2, 12);
+      sessionId = params.has('session') ? params.get('session') : Math.random().toString(36).substring(2, 12);
+      if (!params.has('session')) {
         window.history.replaceState(null, '', `?session=${sessionId}`);
       }
 
-      // 認証済みならUI初期化、そうでなければ認証フローへ
       if (sessionStorage.getItem('authenticated_session_id') === sessionId) {
         initializeUI();
         return;
       }
 
-      // 認証がまだなので、UIは隠して認証画面を表示
       mainContent.style.display = 'none';
       authOverlay.style.display = 'flex';
 
@@ -442,25 +425,24 @@ function listenForChanges() {
         authSubmitBtn.onclick = async () => {
           const password = passwordInput.value;
           if (password.length < 4) {
-            errorMessage.textContent = 'パスワードは4文字以上で設定してください。';
-            return;
+            errorMessage.textContent = 'パスワードは4文字以上で設定してください。'; return;
           }
-          localStorage.clear(); // ここでクリア
-          await docRef.set({ password: password, data: '{}' });
+          localStorage.clear();
+          await docRef.set({ password: password, data: '{}', senderId: clientInstanceId });
           sessionStorage.setItem('authenticated_session_id', sessionId);
-          location.reload(); // 準備完了後、リロード
+          location.reload();
         };
       } else { // 既存セッション
         const correctPassword = doc.data().password;
         authSubmitBtn.onclick = () => {
           if (passwordInput.value === correctPassword) {
-            localStorage.clear(); // ここでもクリア
-            const remoteData = JSON.parse(doc.data().data);
+            localStorage.clear();
+            const remoteData = JSON.parse(doc.data().data || '{}');
             for (const [key, value] of Object.entries(remoteData)) {
               localStorage.setItem(key, value);
             }
             sessionStorage.setItem('authenticated_session_id', sessionId);
-            location.reload(); // 準備完了後、リロード
+            location.reload();
           } else {
             errorMessage.textContent = 'パスワードが違います。';
           }
@@ -477,73 +459,51 @@ function listenForChanges() {
     scMemo.addEventListener('input', () => { saveMemos(); saveDataToFirebase(); });
     noteMemo.addEventListener('input', () => { saveMemos(); saveDataToFirebase(); });
     window.addEventListener('message', (event) => {
-      if (event.data === 'map_updated') {
-        saveDataToFirebase();
-      }
+      if (event.data === 'map_updated') saveDataToFirebase();
     });
 
+    // データ入出力ボタン
     const exportBtn = document.getElementById('exportBtn');
     const importBtn = document.getElementById('importBtn');
     const importFile = document.getElementById('importFile');
-
     if (exportBtn && importBtn && importFile) {
-      // エクスポートボタンの動作
       exportBtn.addEventListener('click', () => {
         const allData = {};
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
           allData[key] = localStorage.getItem(key);
         }
-        const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url;
+        a.href = URL.createObjectURL(new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' }));
         a.download = `session_${sessionId}_backup.json`;
-        document.body.appendChild(a);
         a.click();
-        URL.revokeObjectURL(url);
         a.remove();
       });
-
-      // インポートボタンの動作
       importBtn.addEventListener('click', () => {
-        if (confirm('警告：現在のセッションの全データが、読み込んだファイルの内容で上書きされます。この操作は元に戻せません。本当によろしいですか？')) {
+        if (confirm('警告：現在のセッションデータが上書きされます。よろしいですか？')) {
           importFile.click();
         }
       });
-
-      // ファイルが選択された時の動作
       importFile.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
-
         const reader = new FileReader();
         reader.onload = (event) => {
           try {
             const dataToImport = JSON.parse(event.target.result);
-
-            // localStorageをインポートデータで上書き
             localStorage.clear();
             for (const [key, value] of Object.entries(dataToImport)) {
               localStorage.setItem(key, value);
             }
-
-            // Firebaseに直接保存し、他の参加者にも同期させる
             saveDataToFirebase();
-
-            // 自分の画面もリロードして即時反映
             alert('データを読み込みました。ページを更新します。');
             location.reload();
-
-          } catch (err) {
-            alert('ファイルの読み込みに失敗しました: ' + err.message);
-          }
+          } catch (err) { alert('読み込みに失敗しました: ' + err.message); }
         };
         reader.readAsText(file);
-        e.target.value = ''; // 同じファイルを連続で読み込めるようにする
+        e.target.value = '';
       });
     }
-    
     //================================================================
     // 6. 起動処理
     //================================================================
